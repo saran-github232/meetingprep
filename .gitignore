@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-electron
+release
+.env
+*.tsbuildinfo
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+.idea/
+.vscode/

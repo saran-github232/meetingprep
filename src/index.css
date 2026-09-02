@@ -1,0 +1,290 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Design tokens — warm paper (light) / deep ink (dark), single teal accent.
+   --------------------------------------------------------------------------- */
+:root {
+  --bg: 249 248 245;
+  --surface: 255 255 255;
+  --raised: 245 244 240;
+  --fg: 28 27 25;
+  --muted: 89 85 79;
+  --faint: 148 143 135;
+  --hairline: 232 229 222;
+  --accent: 13 148 136;
+  --accent-strong: 15 118 110;
+  --accent-soft: 214 240 236;
+  --accent-fg: 255 255 255;
+  --gold: 173 123 41;
+  --danger: 217 45 45;
+  --shadow-card: 0 1px 2px rgb(28 27 25 / 0.04), 0 6px 20px -6px rgb(28 27 25 / 0.07);
+  --shadow-pop: 0 18px 44px -12px rgb(28 27 25 / 0.2);
+  --shadow-glow: 0 8px 20px -8px rgb(var(--accent) / 0.55);
+  color-scheme: light;
+}
+
+.dark {
+  --bg: 19 18 16;
+  --surface: 27 26 24;
+  --raised: 36 34 31;
+  --fg: 237 233 227;
+  --muted: 170 164 156;
+  --faint: 122 117 110;
+  --hairline: 47 45 41;
+  --accent: 52 211 190;
+  --accent-strong: 78 226 207;
+  --accent-soft: 22 54 49;
+  --accent-fg: 8 42 38;
+  --gold: 219 173 92;
+  --danger: 248 113 113;
+  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 10px 28px -10px rgb(0 0 0 / 0.55);
+  --shadow-pop: 0 20px 52px -14px rgb(0 0 0 / 0.75);
+  --shadow-glow: 0 8px 24px -8px rgb(var(--accent) / 0.4);
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg font-sans text-fg antialiased;
+    background-image: radial-gradient(1100px 460px at 18% -8%, rgb(var(--accent) / 0.05), transparent 70%);
+    background-attachment: fixed;
+  }
+
+  /* Subtle grain so surfaces don't feel sterile */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .dark body::before {
+    opacity: 0.05;
+  }
+
+  ::selection {
+    background: rgb(var(--accent) / 0.28);
+  }
+
+  *:focus-visible {
+    outline: 2px solid rgb(var(--accent) / 0.75);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--fg) / 0.16);
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--fg) / 0.28);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  #root {
+    @apply relative z-[1] h-screen;
+  }
+}
+
+@layer components {
+  /* ---------- page scaffolding ---------- */
+  .page {
+    @apply animate-rise p-8 lg:p-10;
+  }
+
+  .page-title {
+    @apply font-display text-[26px] font-semibold leading-tight tracking-tight text-fg;
+  }
+
+  .page-sub {
+    @apply mt-1.5 text-[14.5px] leading-relaxed text-muted;
+  }
+
+  .section-label {
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-faint;
+  }
+
+  /* ---------- surfaces ---------- */
+  .card {
+    @apply rounded-2xl border border-hairline bg-surface shadow-card;
+  }
+
+  .card-interactive {
+    @apply card transition-all duration-300 hover:-translate-y-0.5 hover:shadow-pop;
+  }
+
+  .panel {
+    @apply rounded-xl border border-hairline bg-raised/60;
+  }
+
+  /* ---------- buttons ---------- */
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent text-accent-fg shadow-glow hover:bg-accent-strong;
+  }
+
+  .btn-secondary {
+    @apply btn border border-hairline bg-surface text-fg shadow-sm hover:border-faint/50 hover:bg-raised;
+  }
+
+  .btn-ghost {
+    @apply btn text-muted hover:bg-raised hover:text-fg;
+  }
+
+  .btn-danger {
+    @apply btn border border-danger/30 text-danger hover:bg-danger/10;
+  }
+
+  .btn-xs {
+    @apply gap-1 rounded-lg px-2.5 py-1 text-xs;
+  }
+
+  .btn-block {
+    @apply w-full;
+  }
+
+  /* ---------- form fields ---------- */
+  .input {
+    @apply w-full rounded-xl border border-hairline bg-surface px-3 py-2 text-sm text-fg shadow-sm transition-all duration-200 placeholder:text-faint hover:border-faint/40 focus:border-accent focus:shadow-glow focus:outline-none;
+  }
+
+  .textarea {
+    @apply input resize-y leading-relaxed;
+  }
+
+  .select {
+    @apply input cursor-pointer appearance-none bg-no-repeat pr-9;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23948f87' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-position: right 0.7rem center;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-faint;
+  }
+
+  /* ---------- chips & badges ---------- */
+  .chip {
+    @apply select-none rounded-full border px-3.5 py-1.5 text-sm font-medium transition-all duration-200 active:scale-[0.97];
+  }
+
+  .chip-active {
+    @apply border-transparent bg-accent text-accent-fg shadow-glow;
+  }
+
+  .chip-idle {
+    @apply border-hairline bg-surface text-muted hover:border-faint/50 hover:text-fg;
+  }
+
+  .badge {
+    @apply inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold leading-4;
+  }
+
+  .badge-gold {
+    @apply badge border-gold/30 bg-gold/10 text-gold;
+  }
+
+  .badge-teal {
+    @apply badge border-accent/30 bg-accent/10 text-accent;
+  }
+
+  /* ---------- feedback ---------- */
+  .error-box {
+    @apply rounded-xl border border-danger/25 bg-danger/10 p-3.5 text-sm text-danger;
+  }
+
+  .warn-box {
+    @apply rounded-xl border border-gold/25 bg-gold/10 p-4 text-sm leading-relaxed text-gold;
+  }
+
+  .ok-text {
+    @apply text-[13px] font-medium text-accent;
+  }
+
+  /* ---------- content pieces ---------- */
+  .code-block {
+    @apply overflow-x-auto rounded-xl border border-hairline bg-raised p-4 font-mono text-[13px] leading-relaxed text-fg;
+  }
+
+  .kbd {
+    @apply rounded-md border border-hairline bg-raised px-1.5 py-0.5 font-mono text-[11px] text-muted;
+  }
+
+  .stat-value {
+    @apply font-display text-[30px] font-semibold leading-none tracking-tight text-fg;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- disclosure cards (history) ---------- */
+  .disclosure {
+    @apply card overflow-hidden transition-shadow duration-300 hover:shadow-pop;
+  }
+  .disclosure > summary {
+    @apply flex cursor-pointer list-none items-center justify-between gap-3 p-4;
+  }
+  .disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+  .disclosure .disclosure-chevron {
+    @apply text-faint transition-transform duration-200;
+  }
+  .disclosure[open] .disclosure-chevron {
+    @apply rotate-90;
+  }
+  .disclosure[open] > summary {
+    @apply border-b border-hairline;
+  }
+
+  /* ---------- switch ---------- */
+  .switch {
+    @apply relative h-6 w-11 shrink-0 cursor-pointer rounded-full bg-fg/15 transition-colors duration-300;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    height: 18px;
+    width: 18px;
+    border-radius: 9999px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .dark .switch {
+    background: rgb(255 255 255 / 0.14);
+  }
+  .switch-on {
+    background: rgb(var(--accent)) !important;
+  }
+  .switch-on::after {
+    transform: translateX(20px);
+  }
+
+  /* ---------- progress ---------- */
+  .meter {
+    @apply h-2 flex-1 overflow-hidden rounded-full bg-raised;
+  }
+  .meter-fill {
+    @apply h-full rounded-full bg-gradient-to-r from-accent-strong to-accent transition-[width] duration-700 ease-out;
+  }
+}
