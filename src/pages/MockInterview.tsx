@@ -23,6 +23,7 @@ interface CompletedItem {
 }
 
 type Stage = "setup" | "question" | "summary";
+type Mode = "practice" | "interview";
 
 function parseScoreNumber(raw: string): number | null {
   const match = raw.match(/(\d+(?:\.\d+)?)\s*\/\s*10/);
@@ -32,6 +33,7 @@ function parseScoreNumber(raw: string): number | null {
 export default function MockInterview() {
   const plan = usePlan();
   const [stage, setStage] = useState<Stage>("setup");
+  const [mode, setMode] = useState<Mode>("practice");
 
   const [role, setRole] = useState("");
   const [skills, setSkills] = useState("");
@@ -70,6 +72,16 @@ export default function MockInterview() {
       stopSpeaking();
     };
   }, []);
+
+  // Interview mode: the mic starts listening for your answer on its own as soon as each
+  // question appears, so the session flows hands-free instead of needing a mic click every
+  // time. Practice mode leaves that to you, same as before.
+  useEffect(() => {
+    if (stage === "question" && mode === "interview" && !feedback && dictationSupported) {
+      startDictation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, index, mode]);
 
   // Prefill from the Prep Room setup (role, stack, level, job description) so running an
   // interview right after setting up doesn't mean retyping everything.
@@ -126,6 +138,7 @@ export default function MockInterview() {
 
   function submitAnswer() {
     if (!answer.trim() || loading) return;
+    stopDictation();
     setLoading(true);
     setError(null);
     setStreamText("");
@@ -250,6 +263,36 @@ export default function MockInterview() {
 
       {stage === "setup" && (
         <div className="space-y-4 max-w-md">
+          <div>
+            <label className="section-label">Mode</label>
+            <div className="mt-1 grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setMode("practice")}
+                className={`rounded-xl border p-3.5 text-left transition-all duration-200 ${
+                  mode === "practice" ? "border-accent bg-accent/10" : "border-hairline bg-surface/50 hover:border-faint/50"
+                }`}
+              >
+                <div className="text-[13px] font-semibold">Practice</div>
+                <p className="mt-0.5 text-[11.5px] leading-relaxed text-faint">
+                  Read each question at your own pace. Use the mic when you're ready.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("interview")}
+                className={`rounded-xl border p-3.5 text-left transition-all duration-200 ${
+                  mode === "interview" ? "border-accent bg-accent/10" : "border-hairline bg-surface/50 hover:border-faint/50"
+                }`}
+              >
+                <div className="text-[13px] font-semibold">Interview</div>
+                <p className="mt-0.5 text-[11.5px] leading-relaxed text-faint">
+                  The mic starts listening the moment each question appears — answer hands-free.
+                </p>
+              </button>
+            </div>
+          </div>
+
           <div>
             <label className="section-label">
               Role you're interviewing for
@@ -384,9 +427,17 @@ export default function MockInterview() {
 
       {stage === "question" && (
         <div className="space-y-4">
-          <p className="text-xs text-faint">
-            Question {index + 1} of {questions.length}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-faint">
+              Question {index + 1} of {questions.length}
+            </p>
+            {mode === "interview" && (
+              <span className="badge-teal">
+                <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-accent" />
+                Interview mode
+              </span>
+            )}
+          </div>
           <div className="card flex items-start justify-between gap-4 p-5">
             <p className="text-sm font-medium">{questions[index]}</p>
             {speakerSupported && (
@@ -407,12 +458,22 @@ export default function MockInterview() {
                 <textarea
                   className="textarea font-mono"
                   rows={7}
-                  placeholder="Type your answer, or dictate it with the mic — write code directly here if it's a coding question…"
+                  placeholder={
+                    mode === "interview"
+                      ? "Listening automatically — start speaking your answer. You can also type or edit it here."
+                      : "Type your answer, or dictate it with the mic — write code directly here if it's a coding question…"
+                  }
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
                   disabled={loading}
                 />
                 <InterimLine text={interim} />
+                {mode === "interview" && listening && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-[11.5px] font-medium text-accent">
+                    <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-accent" />
+                    Listening for your answer — click the mic to pause.
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2.5">
                 <button
