@@ -60,6 +60,7 @@ export function useDictation(onFinal: (text: string) => void) {
   onFinalRef.current = onFinal;
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const wantListeningRef = useRef(false);
+  const networkErrorCountRef = useRef(0);
 
   const stop = useCallback(() => {
     wantListeningRef.current = false;
@@ -76,6 +77,7 @@ export function useDictation(onFinal: (text: string) => void) {
     const Ctor = recognitionCtor();
     if (!Ctor) return;
     setError(null);
+    networkErrorCountRef.current = 0;
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
@@ -95,7 +97,10 @@ export function useDictation(onFinal: (text: string) => void) {
         const text = result[0]?.transcript ?? "";
         if (result.isFinal) {
           const trimmed = text.trim();
-          if (trimmed) onFinalRef.current(trimmed);
+          if (trimmed) {
+            networkErrorCountRef.current = 0;
+            onFinalRef.current(trimmed);
+          }
         } else {
           interimText += text;
         }
@@ -112,6 +117,11 @@ export function useDictation(onFinal: (text: string) => void) {
         return;
       }
       if (event.error === "network") {
+        // Chromium's speech service throws spurious "network" errors even with a fine
+        // connection. Let onend's auto-restart retry it a few times before treating this
+        // as a real outage — same treatment as no-speech/aborted, just capped.
+        networkErrorCountRef.current += 1;
+        if (networkErrorCountRef.current <= 3) return;
         wantListeningRef.current = false;
         setListening(false);
         setError("Speech service needs a network connection.");
