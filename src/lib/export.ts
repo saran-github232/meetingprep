@@ -1,4 +1,4 @@
-import type { StructuredAnswer, CodeAnswer, ResumeTailoringResult } from "../../electron/ai/AIProvider";
+import type { StructuredAnswer, CodeAnswer, ResumeTailoringResult, InterviewPrepItem, InterviewFeedback } from "../../electron/ai/AIProvider";
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -101,4 +101,65 @@ export function slugify(text: string): string {
       .replace(/^-+|-+$/g, "")
       .slice(0, 50) || "answer"
   );
+}
+
+export function prepPackToMarkdown(role: string, items: InterviewPrepItem[]): string {
+  return `# Predicted Interview Questions${role ? ` — ${role}` : ""}
+
+${items
+  .map(
+    (item, i) => `### Q${i + 1}
+${item.question}
+${item.angle ? `\nSuggested angle: ${item.angle}` : ""}`
+  )
+  .join("\n\n")}
+`;
+}
+
+/** A full Mock Interview session as one document — every question, your answer, and the feedback. */
+export function mockSessionToMarkdown(session: {
+  role: string;
+  experience: string;
+  categories: string[];
+  dateISO: string;
+  items: { question: string; userAnswer: string; feedback: InterviewFeedback }[];
+}): string {
+  const scores = session.items
+    .map((i) => i.feedback.score.match(/(\d+(?:\.\d+)?)\s*\/\s*10/))
+    .filter((m): m is RegExpMatchArray => m != null)
+    .map((m) => Number(m[1]));
+  const average = scores.length
+    ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
+    : null;
+  const header = [
+    "# Mock Interview Report",
+    "",
+    "### Session",
+    `${new Date(session.dateISO).toLocaleString()} · Role: ${session.role || "—"} · Level: ${session.experience}${
+      session.categories.length ? ` · Categories: ${session.categories.join(", ")}` : ""
+    }`,
+  ];
+  if (average) header.push("", "### Average Score", `${average}/10 across ${scores.length} scored answer${scores.length === 1 ? "" : "s"}`);
+  const body = session.items.map((item, i) =>
+    [
+      `### Question ${i + 1}`,
+      item.question,
+      "",
+      "### Your Answer",
+      item.userAnswer || "(not recorded)",
+      "",
+      `### Feedback — Score`,
+      item.feedback.score,
+      "",
+      "### Feedback — Strengths",
+      ...(item.feedback.strengths.length ? item.feedback.strengths.map((s) => `- ${s}`) : ["- (none listed)"]),
+      "",
+      "### Feedback — Improvements",
+      ...(item.feedback.improvements.length ? item.feedback.improvements.map((s) => `- ${s}`) : ["- (none listed)"]),
+      "",
+      "### Model Answer",
+      item.feedback.modelAnswer,
+    ].join("\n")
+  );
+  return [...header, "", body.join("\n\n"), ""].join("\n");
 }

@@ -208,3 +208,27 @@ export const IconSpark = (p: IconProps) => (
     <circle cx="12" cy="12" r="2.8" />
   </svg>
 );
+
+export const IconRocket = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+    <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+    <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+    <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+  </svg>
+);
+
+export const IconGuide = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M2.5 4h5.5a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2.5V4Z" />
+    <path d="M21.5 4H16a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h6.5V4Z" />
+  </svg>
+);
+
+export const IconListCheck = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="m3.5 16.5 2 2 4-4" />
+    <path d="m3.5 7.5 2 2 4-4" />
+    <path d="M13 7h8M13 13.5h8M13 20h8" />
+  </svg>
+);

@@ -10,6 +10,7 @@ import {
   IconCode,
   IconMic,
   IconPractice,
+  IconRocket,
   IconStar,
 } from "../components/icons";
 
@@ -69,6 +70,7 @@ export default function Dashboard() {
   ];
 
   const quickActions = [
+    { label: "Set up for an interview", desc: "Resume, predicted questions, checklist", to: "/prep-room", icon: IconRocket },
     { label: "Practice a question", desc: "Structured answers, any depth", to: "/practice", icon: IconPractice },
     { label: "Open Coding Lab", desc: "Solve and review problems", to: "/coding-lab", icon: IconCode },
     { label: "Run a mock interview", desc: "Scored, role-tailored questions", to: "/mock-interview", icon: IconMic },

@@ -15,6 +15,7 @@ import type {
   AIProviderName,
   Plan,
 } from "./db/db";
+import type { ShieldCapability } from "./stealth";
 
 function streamChannel(
   startChannel: string,
@@ -102,6 +103,7 @@ const api = {
   stealth: {
     get: (): Promise<boolean> => ipcRenderer.invoke("stealth:get"),
     set: (enabled: boolean): Promise<void> => ipcRenderer.invoke("stealth:set", enabled),
+    capability: (): Promise<ShieldCapability> => ipcRenderer.invoke("stealth:capability"),
   },
   data: {
     wipeAll: () => ipcRenderer.invoke("data:wipeAll"),

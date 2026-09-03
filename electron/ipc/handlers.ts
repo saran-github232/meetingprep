@@ -5,6 +5,7 @@ import type { AIProviderName } from "../db/db";
 import { setEnvKey } from "../env";
 import { saveMarkdown, savePdf } from "../export";
 import { importResumePdf } from "../pdf";
+import { shieldCapability } from "../stealth";
 import { friendlyErrorMessage } from "../ai/retry";
 
 const ENV_KEY_NAME: Record<AIProviderName, string> = {
@@ -59,6 +60,7 @@ export function registerIpcHandlers(getProviders: () => AIProvider[]) {
   ipcMain.handle("settings:set", (_e, key: string, value: string) => db.setSetting(key, value));
 
   ipcMain.handle("stealth:get", () => db.getSetting("stealth") === "1");
+  ipcMain.handle("stealth:capability", () => shieldCapability());
   ipcMain.handle("stealth:set", (_e, enabled: boolean) => {
     db.setSetting("stealth", enabled ? "1" : "0");
     for (const win of BrowserWindow.getAllWindows()) win.setContentProtection(enabled);

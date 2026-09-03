@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTheme, type Theme } from "../lib/useTheme";
+import { useStealth } from "../lib/useStealth";
 import type { AIProviderName, Plan } from "../../electron/db/db";
 import { FEATURES } from "../lib/plan";
 import { IconCheck, IconMonitor, IconMoon, IconShield, IconSun } from "../components/icons";
@@ -19,7 +20,7 @@ export default function Settings() {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [keySaved, setKeySaved] = useState(false);
   const [plan, setPlan] = useState<Plan | null>(null);
-  const [stealth, setStealth] = useState(false);
+  const { stealth, toggleStealth, capability } = useStealth();
 
   function refreshStatus() {
     window.api.ai.status().then(setAiConfigured);
@@ -28,15 +29,8 @@ export default function Settings() {
   useEffect(() => {
     window.api.ai.getActiveProvider().then(setProvider);
     window.api.plan.get().then(setPlan);
-    window.api.stealth.get().then(setStealth);
     refreshStatus();
   }, []);
-
-  async function toggleStealth() {
-    const next = !stealth;
-    setStealth(next);
-    await window.api.stealth.set(next);
-  }
 
   async function togglePlan() {
     const next: Plan = plan === "pro" ? "free" : "pro";
@@ -109,14 +103,11 @@ export default function Settings() {
               <div>
                 <div className="text-[14.5px] font-semibold tracking-tight">Capture shield</div>
                 <p className="mt-1 max-w-md text-[13px] leading-relaxed text-muted">
-                  Hides this window from screen sharing and recording (Zoom, Teams, Meet, OBS) while it
-                  stays fully visible on your display. Toggle anytime with{" "}
+                  Keeps this window out of screen shares, recordings, and screenshots (Zoom, Teams, Meet, OBS)
+                  while it stays fully visible on your display. Toggle anytime with{" "}
                   <span className="kbd">Ctrl</span> <span className="kbd">Shift</span>{" "}
-                  <span className="kbd">H</span> or the shield button in the sidebar.
-                </p>
-                <p className="mt-1.5 text-[11.5px] leading-relaxed text-faint">
-                  On Windows 10 (2004+) and macOS the window is excluded entirely from captures; on older
-                  systems it appears as a black rectangle instead.
+                  <span className="kbd">H</span> or the shield button in the sidebar. Persists across
+                  restarts.
                 </p>
               </div>
             </div>
@@ -138,6 +129,24 @@ export default function Settings() {
               <span className="text-faint">Off — the window behaves like any normal window</span>
             )}
           </div>
+          {capability && (
+            <div className="mt-3.5 space-y-2 rounded-xl border border-hairline bg-raised/50 p-3.5">
+              <div className="flex items-start gap-2.5 text-[12.5px] leading-relaxed">
+                <IconMonitor size={14} className="mt-0.5 shrink-0 text-accent" />
+                <span>
+                  <span className="font-semibold">On your display:</span>{" "}
+                  <span className="text-muted">{capability.localShows}</span>
+                </span>
+              </div>
+              <div className="flex items-start gap-2.5 text-[12.5px] leading-relaxed">
+                <IconShield size={14} className="mt-0.5 shrink-0 text-accent" />
+                <span>
+                  <span className="font-semibold">In the share / recording:</span>{" "}
+                  <span className="text-muted">{capability.capturesShow}</span>
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

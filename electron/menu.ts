@@ -92,6 +92,8 @@ export function buildAppMenu() {
       label: "Go",
       submenu: [
         { label: "Dashboard", click: () => sendNavigate("/") },
+        { label: "Prep Room", click: () => sendNavigate("/prep-room") },
+        { label: "Setup Guide", click: () => sendNavigate("/setup-guide") },
         { label: "Practice", click: () => sendNavigate("/practice") },
         { label: "Coding Lab", click: () => sendNavigate("/coding-lab") },
         { label: "Mock Interview", click: () => sendNavigate("/mock-interview") },

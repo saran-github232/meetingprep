@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ShieldCapability } from "../../electron/stealth";
 
-/** Capture shield state, kept in sync with the Electron main process. */
+/** Capture shield state (kept in sync with the Electron main process) plus what the OS can actually do. */
 export function useStealth() {
   const [enabled, setEnabled] = useState(false);
+  const [capability, setCapability] = useState<ShieldCapability | null>(null);
   const enabledRef = useRef(false);
 
   const toggle = useCallback(() => {
@@ -17,8 +19,9 @@ export function useStealth() {
       enabledRef.current = v;
       setEnabled(v);
     });
+    window.api.stealth.capability().then(setCapability);
     return window.api.menu.onToggleStealth(toggle);
   }, [toggle]);
 
-  return { stealth: enabled, toggleStealth: toggle };
+  return { stealth: enabled, toggleStealth: toggle, capability };
 }

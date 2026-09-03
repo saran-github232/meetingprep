@@ -12,11 +12,13 @@ import {
   IconDashboard,
   IconFile,
   IconFolder,
+  IconGuide,
   IconMic,
   IconMonitor,
   IconMoon,
   IconNotes,
   IconPractice,
+  IconRocket,
   IconScan,
   IconShield,
   IconSliders,
@@ -25,10 +27,12 @@ import {
   IconWand,
 } from "./components/icons";
 import Dashboard from "./pages/Dashboard";
+import PrepRoom from "./pages/PrepRoom";
 import Practice from "./pages/Practice";
 import QuestionAnalyzer from "./pages/QuestionAnalyzer";
 import CodingLab from "./pages/CodingLab";
 import MockInterview from "./pages/MockInterview";
+import SetupGuide from "./pages/SetupGuide";
 import ResumeContext from "./pages/ResumeContext";
 import ResumeTailoring from "./pages/ResumeTailoring";
 import Resources from "./pages/Resources";
@@ -44,10 +48,12 @@ const NAV_GROUPS: { label: string; items: { to: string; label: string; icon: typ
     label: "Prepare",
     items: [
       { to: "/", label: "Dashboard", icon: IconDashboard, end: true },
+      { to: "/prep-room", label: "Prep Room", icon: IconRocket },
       { to: "/practice", label: "Practice", icon: IconPractice },
       { to: "/coding-lab", label: "Coding Lab", icon: IconCode },
       { to: "/mock-interview", label: "Mock Interview", icon: IconMic },
       { to: "/analyzer", label: "Question Analyzer", icon: IconScan },
+      { to: "/setup-guide", label: "Setup Guide", icon: IconGuide },
     ],
   },
   {
@@ -190,10 +196,12 @@ export default function App() {
       <main className="flex-1 overflow-y-auto">
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/prep-room" element={<PrepRoom />} />
           <Route path="/practice" element={<Practice />} />
           <Route path="/coding-lab" element={<CodingLab />} />
           <Route path="/mock-interview" element={<MockInterview />} />
           <Route path="/analyzer" element={<QuestionAnalyzer />} />
+          <Route path="/setup-guide" element={<SetupGuide />} />
           <Route path="/resume" element={<ResumeContext />} />
           <Route path="/resume-tailoring" element={<ResumeTailoring />} />
           <Route path="/resources" element={<Resources />} />

@@ -6,13 +6,14 @@ import { CATEGORY_LABELS } from "../lib/categoryInfo";
 import { usePlan } from "../lib/usePlan";
 import { isPro } from "../lib/plan";
 import { useDictation, useSpeaker } from "../lib/speech";
+import { EXPERIENCE_LEVELS, PREP_SETTING_KEYS } from "../lib/interview";
+import { mockSessionToMarkdown, markdownToPrintableHtml } from "../lib/export";
 import { MicButton, InterimLine } from "../components/MicButton";
-import { IconVolume } from "../components/icons";
+import { IconLock, IconVolume } from "../components/icons";
 
 const DEPTHS: AnswerDepth[] = ["short", "medium", "detailed", "interview-ready", "expert-level"];
 const COUNTS = [3, 5, 7, 10, 15];
 const HIGH_COUNT_WARNING_THRESHOLD = 10;
-const EXPERIENCE_LEVELS = ["Entry-level", "Mid-level", "Senior", "Lead/Staff"];
 const DEFAULT_CATEGORIES: QuestionCategory[] = ["technical", "coding"];
 
 interface CompletedItem {
@@ -68,6 +69,23 @@ export default function MockInterview() {
       stopDictation();
       stopSpeaking();
     };
+  }, []);
+
+  // Prefill from the Prep Room setup (role, stack, level, job description) so running an
+  // interview right after setting up doesn't mean retyping everything.
+  useEffect(() => {
+    Promise.all([
+      window.api.settings.get(PREP_SETTING_KEYS.role),
+      window.api.settings.get(PREP_SETTING_KEYS.skills),
+      window.api.settings.get(PREP_SETTING_KEYS.experience),
+      window.api.settings.get(PREP_SETTING_KEYS.jobDescription),
+    ]).then(([savedRole, savedSkills, savedExperience, savedJd]) => {
+      if (savedRole) setRole((prev) => prev || savedRole);
+      if (savedSkills) setSkills((prev) => prev || savedSkills);
+      if (savedExperience && EXPERIENCE_LEVELS.includes(savedExperience))
+        setExperience((prev) => (prev === EXPERIENCE_LEVELS[1] ? savedExperience : prev));
+      if (savedJd) setJobDescription((prev) => prev || savedJd);
+    });
   }, []);
 
   function toggleCategory(c: QuestionCategory) {
@@ -159,6 +177,33 @@ export default function MockInterview() {
     } else {
       setStage("summary");
     }
+  }
+
+  function sessionReport(): string {
+    return mockSessionToMarkdown({
+      role: role.trim(),
+      experience,
+      categories: Array.from(categories),
+      dateISO: new Date().toISOString(),
+      items: completed.map((c) => ({ question: c.question, userAnswer: c.userAnswer, feedback: c.feedback })),
+    });
+  }
+
+  function exportReportMarkdown() {
+    if (completed.length === 0) return;
+    window.api.export.markdown(sessionReport(), `mock-interview-${new Date().toISOString().slice(0, 10)}.md`);
+  }
+
+  function exportReportPdf() {
+    if (completed.length === 0) return;
+    if (!isPro(plan, "pdf-export")) {
+      alert("PDF export is a Pro feature. Preview it in Settings > Plan.");
+      return;
+    }
+    window.api.export.pdf(
+      markdownToPrintableHtml("Mock Interview Report", sessionReport()),
+      `mock-interview-${new Date().toISOString().slice(0, 10)}.pdf`
+    );
   }
 
   function restart() {
@@ -431,6 +476,19 @@ export default function MockInterview() {
               </div>
             </details>
           ))}
+          {completed.length > 0 && (
+            <div className="card flex flex-wrap items-center gap-2 p-4">
+              <span className="mr-1 text-[13px] font-medium">Session report</span>
+              <button onClick={exportReportMarkdown} className="btn-secondary btn-xs">
+                Export Markdown
+              </button>
+              <button onClick={exportReportPdf} className="btn-ghost btn-xs">
+                Export PDF
+                {!isPro(plan, "pdf-export") && <IconLock size={11} />}
+              </button>
+              <span className="ml-auto text-[11.5px] text-faint">Every question, your answer, and the feedback — one file</span>
+            </div>
+          )}
           <button
             onClick={restart}
             className="btn-primary"

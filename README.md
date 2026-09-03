@@ -9,12 +9,15 @@ Built for learning and practice: it never impersonates you and never secretly an
 ### Prepare
 
 - **Dashboard** — time-aware greeting, stat cards (practice sessions, coding sessions, favorites, day streak), a per-category activity chart, quick actions, and a streak banner.
+- **Prep Room** — the pre-interview setup flow. Import your resume PDF (text extracted locally, stored encrypted) or paste it, set the target role, tech stack, experience level, and the actual job description (persisted, and auto-prefilled into Mock Interview), then generate a **prep pack**: the questions you're most likely to face for that exact role and posting, each with a suggested answer angle grounded in your resume. The pack is saved locally and exportable (Markdown/PDF), each question links straight into Practice, and a final **before-you-walk-in checklist** shows exactly what's ready (AI provider connected, resume saved, role/JD set, mic dictation available, at least one scored mock completed) plus the current capture-shield state.
+- **Setup Guide** — the end-to-end walkthrough inside the app: what the app is built on, the seven setup steps from `npm install` to interview day, and the interview-day checklist.
 - **Practice** — paste (or dictate) any question — technical, coding, behavioral, client, project, career, presentation… The app classifies it, then streams a structured answer: Answer / Why / Example / Key Points / Follow-up, at your chosen depth (short → expert-level). `Ctrl+Enter` submits; a mic button lets you ask hands-free.
 - **Coding Lab** — describe a coding problem (optionally paste existing code into the Monaco editor) and stream a solution with explanation, complexity, edge cases, alternative approach, and common mistakes.
 - **Question Analyzer** — classifies a question and routes it to Practice or Coding Lab.
 - **Mock Interview** *(Pro)* — set the role, tech stack, experience level, an optional job description, question categories, depth, and count; the AI generates a role-tailored question sequence and evaluates each of *your* answers (score, strengths, improvements, model answer). Two voice features make it realistic:
   - **Listen** — the question is read aloud so you practice with spoken questions.
   - **Answer by voice** — dictate your answer with the mic instead of typing it.
+  At the end, export a **session report**: every question, your answer, and the feedback as one Markdown or PDF file.
   Results feed into Insights.
 
 ### Your profile
@@ -39,7 +42,7 @@ Built for learning and practice: it never impersonates you and never secretly an
 
 ### Settings & privacy
 
-- **Capture shield** — one toggle (sidebar, Settings, or `Ctrl+Shift+H`) that excludes the app window from screen sharing, recording, and screenshots while it stays fully visible on your own display. Persisted across restarts. See [Capture shield](#capture-shield).
+- **Capture shield** — one toggle (sidebar, Settings, or `Ctrl+Shift+H`) that excludes the app window from screen sharing, recording, and screenshots while it stays fully visible on your own display. Persisted across restarts, with the detected OS capability shown in Settings. See [Capture shield](#capture-shield).
 - **AI provider** — Gemini / OpenAI / Anthropic, per-provider encrypted key entry, automatic model fallback.
 - **Theme** — light / dark / follow-system, with a refined warm-paper (light) and deep-ink (dark) design system.
 - **Plan** — a local Free/Pro preview toggle with a features matrix (no billing connected yet).
@@ -47,10 +50,16 @@ Built for learning and practice: it never impersonates you and never secretly an
 
 ## Capture shield
 
-When switched on, the window is excluded from screen capture at the OS level — it does not appear in Zoom/Teams/Meet screen sharing, OBS, or screenshots, while remaining fully visible on your monitor. Under the hood this is Electron's `setContentProtection` (Windows: `WDA_EXCLUDEFROMCAPTURE`; macOS: window sharing disabled).
+When switched on, the window is excluded from screen capture at the OS level — it does not appear in Zoom/Teams/Meet screen sharing, OBS, or screenshots, while remaining fully visible on your monitor. Under the hood this is Electron's `setContentProtection` (Windows: `SetWindowDisplayAffinity`; macOS: window sharing disabled).
 
-- **Windows 10 (2004+) and macOS**: the window is excluded entirely from captures.
-- **Older Windows**: it appears as a black rectangle instead.
+What each side sees, by platform (Settings → Privacy now shows the mode detected on your machine):
+
+| Where you look | Windows 10 2004+ / Windows 11 · macOS | Older Windows (pre-2004) | Linux (X11) |
+|---|---|---|---|
+| **Your display** | Fully visible, behaves like a normal window | Visible on the primary monitor | Visible |
+| **The share / recording / screenshot** | The window is removed entirely | A black rectangle instead | Captured normally — no exclusion available |
+
+- If the window ever seems to vanish from *your own* screen with the shield on, you're on the legacy Windows fallback (`WDA_MONITOR`): the window is restricted to the primary monitor and captures show a black box instead of being excluded. Updating to Windows 10 2004+ switches it to full exclusion.
 - Shortcut: `Ctrl+Shift+H`; state persists in the local database.
 
 This is a *privacy* feature — for keeping your own notes and prep out of a shared screen. It is not an answer feed: the app never generates anything for you during a live evaluation (see [Ethical boundary](#ethical-boundary)).
@@ -112,7 +121,7 @@ A `Plan` preview lives in Settings, laying the groundwork for a future paid tier
 
 | Free | Pro |
 |---|---|
-| Practice & Coding Lab, all providers, voice dictation | PDF export |
+| Practice & Coding Lab, all providers, voice dictation, Prep Room & Setup Guide | PDF export |
 | History, Favorites, tags, Review | Mock Interview (AI feedback on *your* answers, JD-tailored) |
 | Live meeting transcription & AI summaries | Bulk export (entire history as one file) |
 | Markdown export | Insights (weak-category detection) |
@@ -234,7 +243,7 @@ Packaging notes:
 
 ## Ethical boundary
 
-This tool is for preparation and learning — it is explicitly **not** a hidden live-answer feed. It won't:
+This tool is for preparation and learning — it is explicitly **not** a hidden live-answer feed. Everything in the app, including the Prep Room, happens *before* the interview: setup, predicted questions, and rehearsal. It won't:
 
 - Listen to an interviewer and automatically generate answers for you during a live interview, exam, or client call.
 - Auto-detect live questions and push answers to any overlay, second screen, or hidden window.
@@ -259,8 +268,9 @@ electron/            Main process
 src/                 Renderer (React UI)
   pages/               One file per nav screen (Dashboard … Settings)
   components/          AnswerSections, HistoryList, MicButton, icons (custom set)
-  lib/                 speech.ts (dictation + TTS), useStealth.ts, markdown.ts (sanitized inline MD),
-                       theme, answer parsing, export, plan/feature gating, firebase + auth
+  lib/                 speech.ts (dictation + TTS), useStealth.ts, interview.ts (shared setup keys/levels),
+                       markdown.ts (sanitized inline MD), theme, answer parsing, export, plan/feature gating,
+                       firebase + auth
 public/               favicon
 .github/workflows/    build.yml (installer build on v* tag pushes)
 ```
