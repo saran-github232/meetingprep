@@ -14,11 +14,13 @@ Built for learning and practice: it never impersonates you and never secretly an
 - **Practice** — paste (or dictate) any question — technical, coding, behavioral, client, project, career, presentation… The app classifies it, then streams a structured answer: Answer / Why / Example / Key Points / Follow-up, at your chosen depth (short → expert-level). `Ctrl+Enter` submits; a mic button lets you ask hands-free.
 - **Coding Lab** — describe a coding problem (optionally paste existing code into the Monaco editor) and stream a solution with explanation, complexity, edge cases, alternative approach, and common mistakes.
 - **Question Analyzer** — classifies a question and routes it to Practice or Coding Lab.
-- **Mock Interview** *(Pro)* — set the role, tech stack, experience level, an optional job description, question categories, depth, and count; the AI generates a role-tailored question sequence and evaluates each of *your* answers (score, strengths, improvements, model answer). Two voice features make it realistic:
-  - **Listen** — the question is read aloud so you practice with spoken questions.
-  - **Answer by voice** — dictate your answer with the mic instead of typing it.
+- **Mock Interview** *(Pro)* — set the role, tech stack, experience level, an optional job description, question categories, depth, and count; the AI generates a role-tailored question sequence and evaluates each of *your* answers (score, strengths, improvements, model answer). Two modes:
+  - **Practice** — read each question at your own pace, use the mic when you're ready.
+  - **Interview** — the mic starts listening the moment each question appears, so you answer hands-free without clicking anything between questions.
+  Plus two voice features in either mode: **Listen** (the question is read aloud) and **Answer by voice** (dictate instead of typing).
   At the end, export a **session report**: every question, your answer, and the feedback as one Markdown or PDF file.
   Results feed into Insights.
+  This is still self-practice against the app's own generated questions — see [Ethical boundary](#ethical-boundary) for what it deliberately won't do.
 
 ### Your profile
 
@@ -44,7 +46,7 @@ Built for learning and practice: it never impersonates you and never secretly an
 
 - **Capture shield** — one toggle (sidebar, Settings, or `Ctrl+Shift+H`) that excludes the app window from screen sharing, recording, and screenshots while it stays fully visible on your own display. Persisted across restarts, with the detected OS capability shown in Settings. See [Capture shield](#capture-shield).
 - **AI provider** — Gemini / OpenAI / Anthropic / Local (Ollama), per-provider encrypted key entry, automatic model fallback.
-- **Theme** — light / dark / follow-system, with a refined warm-paper (light) and deep-ink (dark) design system.
+- **Theme** — light / dark / follow-system, with a Liquid Glass design system (translucent blurred surfaces over an ambient gradient wash) in both.
 - **Plan** — a local Free/Pro preview toggle with a features matrix (no billing connected yet).
 - **Data controls** — wipe history / resume context / everything.
 
@@ -61,6 +63,7 @@ What each side sees, by platform (Settings → Privacy now shows the mode detect
 
 - If the window ever seems to vanish from *your own* screen with the shield on, you're on the legacy Windows fallback (`WDA_MONITOR`): the window is restricted to the primary monitor and captures show a black box instead of being excluded. Updating to Windows 10 2004+ switches it to full exclusion.
 - Shortcut: `Ctrl+Shift+H`; state persists in the local database.
+- **Cursor tell, fixed:** the OS mouse cursor is drawn by the compositor, not this window, so excluding the window doesn't exclude the cursor — a hand cursor changing over content a viewer can't see is a giveaway. While the shield is on, the whole app forces the plain arrow cursor everywhere (no hover-to-pointer on buttons/links) so nothing about the cursor hints that something is there.
 
 This is a *privacy* feature — for keeping your own notes and prep out of a shared screen. It is not an answer feed: the app never generates anything for you during a live evaluation (see [Ethical boundary](#ethical-boundary)).
 
@@ -234,11 +237,12 @@ Packaging notes:
 ## How it's built
 
 - **Electron + Vite + React + TypeScript** desktop shell.
-- **Design system** — custom Tailwind v3 token layer (warm-paper light / deep-ink dark themes, teal accent), always-dark sidebar, Outfit + Geist typography with graceful system fallbacks, custom icon set, component classes for cards/buttons/fields/chips, subtle grain + ambient gradients, entrance animations, styled scrollbars and focus rings.
+- **Custom mac-style titlebar** — the window is frameless (`frame: false` in `electron/main.ts`) on every platform; `src/App.tsx` draws its own draggable titlebar with traffic-light close/minimize/maximize controls (wired to new `window:*` IPC handlers) and a menu button that pops up the native application menu, since a frameless window hides the OS menu bar on Windows/Linux (macOS keeps its own system menu bar regardless).
+- **Design system** — a Liquid Glass–style Tailwind v3 token layer: translucent, backdrop-blurred surfaces (`bg-surface/70` + `backdrop-blur`) with a soft specular top highlight, floating over an ambient multi-color gradient wash (daylight glass in light mode, smoked glass in dark mode), theme-aware floating sidebar, cyan-teal accent glow, Outfit + Geist typography with graceful system fallbacks, custom icon set, component classes for cards/buttons/fields/chips, subtle grain, entrance animations, styled scrollbars and focus rings.
 - **SQLite** (Node's built-in `node:sqlite`, no native compile step) for local history, resume context, meeting notes, and settings — stored under your OS's app-data folder.
 - **Electron `safeStorage`** (OS keychain / DPAPI / libsecret) encrypts your resume, meeting notes, tailored resumes, and API keys at rest.
 - **Gemini, OpenAI, Anthropic, and Local (Ollama)** — four interchangeable `AIProvider` implementations (`electron/ai/*Provider.ts`) with automatic model and provider fallback, all streaming token-by-token. Local talks to [Ollama](https://ollama.com) on `127.0.0.1:11434` — no API key, nothing leaves the machine, and it's picked last in the fallback chain so a missing/not-running Ollama install fails fast instead of stalling.
-- **Voice** — Web Speech API for dictation and live transcription (auto-restarting recognizer, interim results) and OS speech synthesis for read-aloud, wrapped in `src/lib/speech.ts`.
+- **Voice** — Web Speech API for dictation and live transcription (auto-restarting recognizer, interim results, tolerant of a few transient "network" errors from Chromium's speech service before surfacing one) and OS speech synthesis for read-aloud, wrapped in `src/lib/speech.ts`.
 - **Resume PDF import** — `pdf-parse` (pdf.js) extracts text locally in the main process; kept external to the bundle so pdf.js resolves its worker correctly (also why `asar: false` in packaging).
 - **AI text rendering** — inline markdown (bold/italic/code) from model output is rendered through a sanitized pipeline (`src/lib/markdown.ts` + DOMPurify).
 - **Monaco editor** (`@monaco-editor/react`, bundled locally — never fetched from a CDN, to respect the app's CSP and privacy promise) for syntax-highlighted code editing in Coding Lab.
@@ -262,19 +266,19 @@ This tool is for preparation and learning — it is explicitly **not** a hidden 
 - Auto-detect live questions and push answers to any overlay, second screen, or hidden window.
 - Answer on your behalf while hiding that from the other participant, or try to bypass Teams/Zoom/Meet, OS, or organizational security controls.
 
-The capture shield exists so *you* can keep your own notes and prep private during legitimate screen sharing — the same way any privacy screen works — not to conceal AI-generated answers during an evaluation. Everything voice-driven here is practice-side (spoken mock interviews, dictation) or note-taking (transcripts you're part of, with everyone's knowledge).
+The capture shield exists so *you* can keep your own notes and prep private during legitimate screen sharing — the same way any privacy screen works — not to conceal AI-generated answers during an evaluation. Everything voice-driven here is practice-side (spoken mock interviews, dictation) or note-taking (transcripts you're part of, with everyone's knowledge). Mock Interview's **Interview mode** (auto-listening mic, see [What it does](#what-it-does)) is still you rehearsing solo against the app's own generated questions — not a live-call feature, and there is no mode that listens to a real interviewer or an actual conversation you're taking part in.
 
 ## Project layout
 
 ```
 electron/            Main process
-  main.ts              App entry, window creation, capture shield, .env loading
+  main.ts              App entry, frameless window creation, window:* controls, capture shield, .env loading
   pdf.ts               Resume PDF import (dialog + pdf-parse text extraction)
   env.ts               .env read/write helper
   export.ts            Save-dialog + Markdown/PDF export
-  menu.ts              Native application menu (File/Edit/View/Go/Window/Help)
+  menu.ts              Native application menu (File/Edit/View/Go/Window/Help), popped up via the titlebar menu button
   preload.ts           Typed contextBridge API exposed to the renderer
-  ai/                  Provider interface, Gemini/OpenAI/Anthropic implementations, prompts, retry/fallback
+  ai/                  Provider interface, Gemini/OpenAI/Anthropic/Local(Ollama) implementations, prompts, retry/fallback
   db/                  SQLite schema + access (settings, history, notes, tailoring results)
   ipc/                 IPC handlers (qa, coding, resume, notes, stealth, AI, export)
   security/            OS-keychain encryption helpers
