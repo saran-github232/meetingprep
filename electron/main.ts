@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, Menu, ipcMain, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { GeminiProvider } from "./ai/GeminiProvider";
@@ -57,6 +57,7 @@ function createWindow() {
     show: true,
     backgroundColor: "#131210",
     title: "MeetingPrep AI",
+    frame: false,
     webPreferences: {
       preload: join(__dirname, "preload.mjs"),
       contextIsolation: true,
@@ -70,6 +71,11 @@ function createWindow() {
   // while it stays fully visible on the local display.
   win.setContentProtection(db.getSetting("stealth") === "1");
 
+  // Chromium's drag regions maximize/restore on double-click by themselves, bypassing
+  // window:toggleMaximize — forward the resulting state so the custom titlebar's icon stays correct.
+  win.on("maximize", () => win.webContents.send("window:maximizedChange", true));
+  win.on("unmaximize", () => win.webContents.send("window:maximizedChange", false));
+
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
@@ -81,6 +87,19 @@ function createWindow() {
     win.loadFile(join(__dirname, "../dist/index.html"));
   }
 }
+
+// Custom titlebar (frame: false above) needs the window controls a native frame would
+// otherwise provide, plus a way to still reach the app menu that a frame would show.
+ipcMain.handle("window:minimize", () => BrowserWindow.getFocusedWindow()?.minimize());
+ipcMain.handle("window:toggleMaximize", () => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win) return;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+});
+ipcMain.handle("window:close", () => BrowserWindow.getFocusedWindow()?.close());
+ipcMain.handle("window:isMaximized", () => BrowserWindow.getFocusedWindow()?.isMaximized() ?? false);
+ipcMain.handle("window:showMenu", () => Menu.getApplicationMenu()?.popup());
 
 app.whenReady().then(() => {
   buildAppMenu();

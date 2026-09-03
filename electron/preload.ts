@@ -211,6 +211,18 @@ const api = {
       return () => ipcRenderer.removeListener("menu:toggleStealth", listener);
     },
   },
+  windowControls: {
+    minimize: (): Promise<void> => ipcRenderer.invoke("window:minimize"),
+    toggleMaximize: (): Promise<void> => ipcRenderer.invoke("window:toggleMaximize"),
+    close: (): Promise<void> => ipcRenderer.invoke("window:close"),
+    isMaximized: (): Promise<boolean> => ipcRenderer.invoke("window:isMaximized"),
+    showMenu: (): Promise<void> => ipcRenderer.invoke("window:showMenu"),
+    onMaximizedChange: (onChange: (maximized: boolean) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, maximized: boolean) => onChange(maximized);
+      ipcRenderer.on("window:maximizedChange", listener);
+      return () => ipcRenderer.removeListener("window:maximizedChange", listener);
+    },
+  },
   plan: {
     get: (): Promise<Plan> => ipcRenderer.invoke("plan:get"),
     set: (plan: Plan): Promise<void> => ipcRenderer.invoke("plan:set", plan),

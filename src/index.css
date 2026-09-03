@@ -3,45 +3,52 @@
 @tailwind utilities;
 
 /* ---------------------------------------------------------------------------
-   Design tokens — warm paper (light) / deep ink (dark), single teal accent.
+   Design tokens — Liquid Glass: frosted translucent surfaces over a soft
+   ambient light wash, cyan-teal accent. Light = daylight glass on a pale
+   cool canvas; dark = smoked glass over deep ink with the same ambient glow.
+   Surfaces are still plain rgb triplets (bg-surface/70 etc. apply the actual
+   translucency at the call site) so every existing `bg-surface`, `bg-raised`,
+   `border-hairline` usage across the app keeps working unchanged.
    --------------------------------------------------------------------------- */
 :root {
-  --bg: 249 248 245;
+  --bg: 234 237 244;
   --surface: 255 255 255;
-  --raised: 245 244 240;
-  --fg: 28 27 25;
-  --muted: 89 85 79;
-  --faint: 148 143 135;
-  --hairline: 232 229 222;
-  --accent: 13 148 136;
-  --accent-strong: 15 118 110;
-  --accent-soft: 214 240 236;
+  --raised: 222 227 236;
+  --fg: 16 18 23;
+  --muted: 90 94 106;
+  --faint: 149 153 165;
+  --hairline: 209 215 227;
+  --accent: 5 150 165;
+  --accent-strong: 4 116 129;
+  --accent-soft: 210 240 240;
   --accent-fg: 255 255 255;
   --gold: 173 123 41;
   --danger: 217 45 45;
-  --shadow-card: 0 1px 2px rgb(28 27 25 / 0.04), 0 6px 20px -6px rgb(28 27 25 / 0.07);
-  --shadow-pop: 0 18px 44px -12px rgb(28 27 25 / 0.2);
-  --shadow-glow: 0 8px 20px -8px rgb(var(--accent) / 0.55);
+  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.75), 0 1px 2px rgb(16 18 23 / 0.04),
+    0 16px 36px -16px rgb(16 18 23 / 0.16);
+  --shadow-pop: inset 0 1px 0 rgb(255 255 255 / 0.8), 0 26px 60px -18px rgb(16 18 23 / 0.24);
+  --shadow-glow: 0 0 0 1px rgb(var(--accent) / 0.12), 0 8px 22px -8px rgb(var(--accent) / 0.5);
   color-scheme: light;
 }
 
 .dark {
-  --bg: 19 18 16;
-  --surface: 27 26 24;
-  --raised: 36 34 31;
-  --fg: 237 233 227;
-  --muted: 170 164 156;
-  --faint: 122 117 110;
-  --hairline: 47 45 41;
-  --accent: 52 211 190;
-  --accent-strong: 78 226 207;
-  --accent-soft: 22 54 49;
-  --accent-fg: 8 42 38;
+  --bg: 7 9 13;
+  --surface: 25 28 35;
+  --raised: 35 39 48;
+  --fg: 236 238 242;
+  --muted: 168 173 184;
+  --faint: 118 123 136;
+  --hairline: 62 67 79;
+  --accent: 45 212 191;
+  --accent-strong: 94 234 212;
+  --accent-soft: 16 48 46;
+  --accent-fg: 6 38 35;
   --gold: 219 173 92;
   --danger: 248 113 113;
-  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 10px 28px -10px rgb(0 0 0 / 0.55);
-  --shadow-pop: 0 20px 52px -14px rgb(0 0 0 / 0.75);
-  --shadow-glow: 0 8px 24px -8px rgb(var(--accent) / 0.4);
+  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.07), 0 1px 0 rgb(0 0 0 / 0.4),
+    0 24px 56px -20px rgb(0 0 0 / 0.75);
+  --shadow-pop: inset 0 1px 0 rgb(255 255 255 / 0.09), 0 32px 74px -20px rgb(0 0 0 / 0.85);
+  --shadow-glow: 0 0 0 1px rgb(var(--accent) / 0.18), 0 8px 26px -6px rgb(var(--accent) / 0.45);
   color-scheme: dark;
 }
 
@@ -53,11 +60,22 @@
 
   body {
     @apply bg-bg font-sans text-fg antialiased;
-    background-image: radial-gradient(1100px 460px at 18% -8%, rgb(var(--accent) / 0.05), transparent 70%);
+    /* Ambient wash: two soft colored light sources behind the glass, like a blurred
+       wallpaper glimpsed through frosted panels — this is what makes translucent
+       surfaces read as "glass" instead of plain semi-opaque grey. */
+    background-image: radial-gradient(1000px 560px at 14% -12%, rgb(var(--accent) / 0.16), transparent 60%),
+      radial-gradient(760px 540px at 104% 4%, rgb(167 139 250 / 0.14), transparent 55%),
+      radial-gradient(860px 620px at 46% 116%, rgb(251 191 173 / 0.14), transparent 60%);
     background-attachment: fixed;
   }
 
-  /* Subtle grain so surfaces don't feel sterile */
+  .dark body {
+    background-image: radial-gradient(1000px 620px at 12% -12%, rgb(var(--accent) / 0.22), transparent 60%),
+      radial-gradient(800px 600px at 106% 2%, rgb(99 102 241 / 0.22), transparent 55%),
+      radial-gradient(900px 720px at 42% 118%, rgb(16 90 100 / 0.28), transparent 60%);
+  }
+
+  /* Subtle grain so glass surfaces don't feel sterile */
   body::before {
     content: "";
     position: fixed;
@@ -101,6 +119,15 @@
   #root {
     @apply relative z-[1] h-screen;
   }
+
+  /* Capture shield is on: the window itself is excluded from the capture, but the OS
+     mouse cursor is not — it's drawn by the compositor, not this window. A cursor that
+     switches to a hand over content a screen-share viewer can't see is a tell. Force the
+     plain arrow everywhere while the shield is active. */
+  .stealth-cursor,
+  .stealth-cursor * {
+    cursor: default !important;
+  }
 }
 
 @layer components {
@@ -121,17 +148,17 @@
     @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-faint;
   }
 
-  /* ---------- surfaces ---------- */
+  /* ---------- surfaces (glass) ---------- */
   .card {
-    @apply rounded-2xl border border-hairline bg-surface shadow-card;
+    @apply rounded-[28px] border border-hairline bg-surface/70 shadow-card backdrop-blur-xl;
   }
 
   .card-interactive {
-    @apply card transition-all duration-300 hover:-translate-y-0.5 hover:shadow-pop;
+    @apply card transition-all duration-300 hover:-translate-y-0.5 hover:bg-surface/80 hover:shadow-pop;
   }
 
   .panel {
-    @apply rounded-xl border border-hairline bg-raised/60;
+    @apply rounded-2xl border border-hairline bg-raised/55 backdrop-blur-lg;
   }
 
   /* ---------- buttons ---------- */
@@ -144,11 +171,11 @@
   }
 
   .btn-secondary {
-    @apply btn border border-hairline bg-surface text-fg shadow-sm hover:border-faint/50 hover:bg-raised;
+    @apply btn border border-hairline bg-surface/60 text-fg shadow-sm backdrop-blur-md hover:border-faint/50 hover:bg-surface/80;
   }
 
   .btn-ghost {
-    @apply btn text-muted hover:bg-raised hover:text-fg;
+    @apply btn text-muted hover:bg-raised/60 hover:text-fg;
   }
 
   .btn-danger {
@@ -165,7 +192,7 @@
 
   /* ---------- form fields ---------- */
   .input {
-    @apply w-full rounded-xl border border-hairline bg-surface px-3 py-2 text-sm text-fg shadow-sm transition-all duration-200 placeholder:text-faint hover:border-faint/40 focus:border-accent focus:shadow-glow focus:outline-none;
+    @apply w-full rounded-xl border border-hairline bg-surface/55 px-3 py-2 text-sm text-fg shadow-sm backdrop-blur-md transition-all duration-200 placeholder:text-faint hover:border-faint/40 focus:border-accent focus:bg-surface/90 focus:shadow-glow focus:outline-none;
   }
 
   .textarea {
@@ -192,7 +219,7 @@
   }
 
   .chip-idle {
-    @apply border-hairline bg-surface text-muted hover:border-faint/50 hover:text-fg;
+    @apply border-hairline bg-surface/50 text-muted backdrop-blur-md hover:border-faint/50 hover:bg-surface/75 hover:text-fg;
   }
 
   .badge {
@@ -209,11 +236,11 @@
 
   /* ---------- feedback ---------- */
   .error-box {
-    @apply rounded-xl border border-danger/25 bg-danger/10 p-3.5 text-sm text-danger;
+    @apply rounded-xl border border-danger/25 bg-danger/10 p-3.5 text-sm text-danger backdrop-blur-md;
   }
 
   .warn-box {
-    @apply rounded-xl border border-gold/25 bg-gold/10 p-4 text-sm leading-relaxed text-gold;
+    @apply rounded-xl border border-gold/25 bg-gold/10 p-4 text-sm leading-relaxed text-gold backdrop-blur-md;
   }
 
   .ok-text {
@@ -222,11 +249,11 @@
 
   /* ---------- content pieces ---------- */
   .code-block {
-    @apply overflow-x-auto rounded-xl border border-hairline bg-raised p-4 font-mono text-[13px] leading-relaxed text-fg;
+    @apply overflow-x-auto rounded-xl border border-hairline bg-raised/70 p-4 font-mono text-[13px] leading-relaxed text-fg backdrop-blur-md;
   }
 
   .kbd {
-    @apply rounded-md border border-hairline bg-raised px-1.5 py-0.5 font-mono text-[11px] text-muted;
+    @apply rounded-md border border-hairline bg-raised/80 px-1.5 py-0.5 font-mono text-[11px] text-muted;
   }
 
   .stat-value {
@@ -256,7 +283,7 @@
 
   /* ---------- switch ---------- */
   .switch {
-    @apply relative h-6 w-11 shrink-0 cursor-pointer rounded-full bg-fg/15 transition-colors duration-300;
+    @apply relative h-6 w-11 shrink-0 cursor-pointer rounded-full bg-fg/15 backdrop-blur-sm transition-colors duration-300;
   }
   .switch::after {
     content: "";
@@ -282,7 +309,7 @@
 
   /* ---------- progress ---------- */
   .meter {
-    @apply h-2 flex-1 overflow-hidden rounded-full bg-raised;
+    @apply h-2 flex-1 overflow-hidden rounded-full bg-raised/70;
   }
   .meter-fill {
     @apply h-full rounded-full bg-gradient-to-r from-accent-strong to-accent transition-[width] duration-700 ease-out;
