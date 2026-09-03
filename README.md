@@ -1,6 +1,6 @@
 # MeetingPrep AI
 
-A premium desktop studio for interview and meeting preparation — practice questions, code problems, spoken mock interviews, resume tailoring with ATS scoring, and live note-taking — powered by Gemini, OpenAI, or Anthropic (your choice).
+A premium desktop studio for interview and meeting preparation — practice questions, code problems, spoken mock interviews, resume tailoring with ATS scoring, and live note-taking — powered by Gemini, OpenAI, Anthropic, or a fully local model via Ollama (your choice).
 
 Built for learning and practice: it never impersonates you and never secretly answers on your behalf during a live evaluation. It includes a **capture shield** you can switch on to keep the window out of screen shares and recordings while you use it for *your own* notes and prep — see [Ethical boundary](#ethical-boundary) and [Capture shield](#capture-shield) below.
 
@@ -43,7 +43,7 @@ Built for learning and practice: it never impersonates you and never secretly an
 ### Settings & privacy
 
 - **Capture shield** — one toggle (sidebar, Settings, or `Ctrl+Shift+H`) that excludes the app window from screen sharing, recording, and screenshots while it stays fully visible on your own display. Persisted across restarts, with the detected OS capability shown in Settings. See [Capture shield](#capture-shield).
-- **AI provider** — Gemini / OpenAI / Anthropic, per-provider encrypted key entry, automatic model fallback.
+- **AI provider** — Gemini / OpenAI / Anthropic / Local (Ollama), per-provider encrypted key entry, automatic model fallback.
 - **Theme** — light / dark / follow-system, with a refined warm-paper (light) and deep-ink (dark) design system.
 - **Plan** — a local Free/Pro preview toggle with a features matrix (no billing connected yet).
 - **Data controls** — wipe history / resume context / everything.
@@ -73,12 +73,23 @@ Everything you need to paste goes in one file: **`.env`**, in the project root (
 | One AI provider key | `.env` | `GEMINI_API_KEY` **or** `OPENAI_API_KEY` **or** `ANTHROPIC_API_KEY` | Yes — pick one |
 | Firebase config (for Resources tab) | `.env` | `VITE_FIREBASE_API_KEY` + 5 more `VITE_FIREBASE_*` vars | No — only if you want Resources |
 
-**1. Install dependencies**
+**1. Get the code**
+
+Requires [Git](https://git-scm.com/downloads) and [Node.js 22.5+](https://nodejs.org) installed first.
+
+```
+git clone https://github.com/saran-github232/meetingprep.git
+cd meetingprep
+```
+
+*No Git?* Click **Code → Download ZIP** on the [GitHub page](https://github.com/saran-github232/meetingprep), unzip it, then open a terminal in that folder.
+
+**2. Install dependencies**
 ```
 npm install
 ```
 
-**2. Get an AI provider key (required — pick exactly one)**
+**3. Get an AI provider key (required — pick exactly one)**
 
 | Provider | Get a key at |
 |---|---|
@@ -96,7 +107,9 @@ Then in the app, go to **Settings → AI Provider** and select the one you fille
 
 *Alternative:* skip editing `.env` by hand — paste the key directly into **Settings → AI Provider** in the running app instead. It writes it into `.env` for you and also stores an encrypted copy in your OS keychain.
 
-**3. (Optional) Add Firebase config — only if you want the Resources tab**
+*Prefer to run fully offline instead?* Install [Ollama](https://ollama.com), run `ollama pull llama3.1:8b` (or any other model), start Ollama, then pick **Local (Ollama)** in **Settings → AI Provider** — no key needed.
+
+**4. (Optional) Add Firebase config — only if you want the Resources tab**
 
 Everything else in the app works without this; Resources just shows "Firebase isn't configured" until you do it. It needs six more lines in the same `.env` file:
 ```
@@ -109,7 +122,7 @@ VITE_FIREBASE_APP_ID=
 ```
 Full console-by-console steps (including the security rules you must paste in) are in [Resources (Admin/User) setup](#resources-adminuser-setup) below.
 
-**4. Run it**
+**5. Run it**
 ```
 npm run dev
 ```
@@ -143,7 +156,7 @@ The Resources page needs a Firebase project (Auth + Firestore + Storage). This i
 
 **2. Configure the app**
 
-Paste the six values from step 5 into `.env` under the `VITE_FIREBASE_*` variables — see [Setup step 3](#setup--step-by-step) above. Restart `npm run dev` after editing `.env` — Vite only reads it at startup.
+Paste the six values from step 5 into `.env` under the `VITE_FIREBASE_*` variables — see [Setup step 4](#setup--step-by-step) above. Restart `npm run dev` after editing `.env` — Vite only reads it at startup.
 
 **3. Deploy security rules**
 
@@ -224,7 +237,7 @@ Packaging notes:
 - **Design system** — custom Tailwind v3 token layer (warm-paper light / deep-ink dark themes, teal accent), always-dark sidebar, Outfit + Geist typography with graceful system fallbacks, custom icon set, component classes for cards/buttons/fields/chips, subtle grain + ambient gradients, entrance animations, styled scrollbars and focus rings.
 - **SQLite** (Node's built-in `node:sqlite`, no native compile step) for local history, resume context, meeting notes, and settings — stored under your OS's app-data folder.
 - **Electron `safeStorage`** (OS keychain / DPAPI / libsecret) encrypts your resume, meeting notes, tailored resumes, and API keys at rest.
-- **Gemini, OpenAI, and Anthropic** — three interchangeable `AIProvider` implementations (`electron/ai/*Provider.ts`) with automatic model and provider fallback. All three stream token-by-token.
+- **Gemini, OpenAI, Anthropic, and Local (Ollama)** — four interchangeable `AIProvider` implementations (`electron/ai/*Provider.ts`) with automatic model and provider fallback, all streaming token-by-token. Local talks to [Ollama](https://ollama.com) on `127.0.0.1:11434` — no API key, nothing leaves the machine, and it's picked last in the fallback chain so a missing/not-running Ollama install fails fast instead of stalling.
 - **Voice** — Web Speech API for dictation and live transcription (auto-restarting recognizer, interim results) and OS speech synthesis for read-aloud, wrapped in `src/lib/speech.ts`.
 - **Resume PDF import** — `pdf-parse` (pdf.js) extracts text locally in the main process; kept external to the bundle so pdf.js resolves its worker correctly (also why `asar: false` in packaging).
 - **AI text rendering** — inline markdown (bold/italic/code) from model output is rendered through a sanitized pipeline (`src/lib/markdown.ts` + DOMPurify).

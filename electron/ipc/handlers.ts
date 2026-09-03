@@ -7,11 +7,13 @@ import { saveMarkdown, savePdf } from "../export";
 import { importResumePdf } from "../pdf";
 import { shieldCapability } from "../stealth";
 import { friendlyErrorMessage } from "../ai/retry";
+import { LocalProvider } from "../ai/LocalProvider";
 
 const ENV_KEY_NAME: Record<AIProviderName, string> = {
   gemini: "GEMINI_API_KEY",
   openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
+  local: "", // Ollama needs no key — it's a local server
 };
 
 export function registerIpcHandlers(getProviders: () => AIProvider[]) {
@@ -78,12 +80,13 @@ export function registerIpcHandlers(getProviders: () => AIProvider[]) {
   ipcMain.handle("ai:setActiveProvider", (_e, provider: AIProviderName) => db.setActiveProvider(provider));
   ipcMain.handle("ai:setApiKey", (_e, provider: AIProviderName, key: string) => {
     db.setApiKey(provider, key);
-    setEnvKey(ENV_KEY_NAME[provider], key);
+    if (ENV_KEY_NAME[provider]) setEnvKey(ENV_KEY_NAME[provider], key);
   });
   ipcMain.handle("ai:clearApiKey", (_e, provider: AIProviderName) => {
     db.clearApiKey(provider);
-    setEnvKey(ENV_KEY_NAME[provider], "");
+    if (ENV_KEY_NAME[provider]) setEnvKey(ENV_KEY_NAME[provider], "");
   });
+  ipcMain.handle("ai:localModels", () => LocalProvider.listModels());
 
   ipcMain.handle("ai:classify", async (_e, question: string) => {
     const providers = getProviders();

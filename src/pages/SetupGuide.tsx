@@ -19,8 +19,8 @@ const STACK = [
   },
   {
     icon: IconSpark,
-    title: "Gemini / OpenAI / Anthropic",
-    body: "The answer engine. You bring one API key (a free Gemini key works); the app falls back across models and providers automatically.",
+    title: "Gemini / OpenAI / Anthropic / Ollama",
+    body: "The answer engine. Bring one API key (a free Gemini key works), or run fully offline with a local Ollama model; the app falls back across models and providers automatically.",
   },
   {
     icon: IconFile,
@@ -46,13 +46,18 @@ const STACK = [
 
 const STEPS = [
   {
+    title: "Get the code",
+    body: "Install Node.js 22.5+ and Git, then clone the repo (or download it as a ZIP from GitHub and unzip it):",
+    code: ["git clone https://github.com/saran-github232/meetingprep.git", "cd meetingprep"],
+  },
+  {
     title: "Install & run",
-    body: "Node.js 22.5+, then from the project folder:",
+    body: "From the project folder:",
     code: ["npm install", "npm run dev"],
   },
   {
     title: "Connect an AI provider",
-    body: "Get a key (a free Gemini key is enough) and paste it into Settings → AI Provider — or into .env in the project root. Pick the matching provider in Settings.",
+    body: "Get a key (a free Gemini key is enough) and paste it into Settings → AI Provider — or into .env in the project root. Prefer to run fully offline? Install Ollama and pick Local (Ollama) instead — no key needed.",
     link: { href: "/settings", label: "Open Settings → AI Provider" },
   },
   {

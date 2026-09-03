@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTheme, type Theme } from "../lib/useTheme";
 import { useStealth } from "../lib/useStealth";
 import type { AIProviderName, Plan } from "../../electron/db/db";
+import type { LocalModelsInfo } from "../../electron/ai/LocalProvider";
 import { FEATURES } from "../lib/plan";
 import { IconCheck, IconMonitor, IconMoon, IconShield, IconSun } from "../components/icons";
 
@@ -9,6 +10,7 @@ const PROVIDERS: { id: AIProviderName; label: string; keyUrl: string }[] = [
   { id: "gemini", label: "Gemini", keyUrl: "https://aistudio.google.com/apikey" },
   { id: "openai", label: "OpenAI", keyUrl: "https://platform.openai.com/api-keys" },
   { id: "anthropic", label: "Anthropic", keyUrl: "https://console.anthropic.com/settings/keys" },
+  { id: "local", label: "Local (Ollama)", keyUrl: "https://ollama.com" },
 ];
 
 const THEME_ICONS = { light: IconSun, system: IconMonitor, dark: IconMoon } as const;
@@ -20,17 +22,30 @@ export default function Settings() {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [keySaved, setKeySaved] = useState(false);
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [localInfo, setLocalInfo] = useState<LocalModelsInfo | null>(null);
+  const [localModel, setLocalModel] = useState("");
   const { stealth, toggleStealth, capability } = useStealth();
 
   function refreshStatus() {
     window.api.ai.status().then(setAiConfigured);
   }
 
+  function refreshLocal() {
+    window.api.ai.localModels().then(setLocalInfo);
+  }
+
   useEffect(() => {
     window.api.ai.getActiveProvider().then(setProvider);
     window.api.plan.get().then(setPlan);
+    window.api.settings.get("local_model").then((v) => setLocalModel(v ?? ""));
     refreshStatus();
+    refreshLocal();
   }, []);
+
+  async function selectLocalModel(model: string) {
+    setLocalModel(model);
+    await window.api.settings.set("local_model", model);
+  }
 
   async function togglePlan() {
     const next: Plan = plan === "pro" ? "free" : "pro";
@@ -75,7 +90,7 @@ export default function Settings() {
 
   async function wipeAllKeys() {
     if (!confirm("Remove all saved API keys (Gemini, OpenAI, Anthropic) from the keychain and .env? This can't be undone.")) return;
-    await Promise.all(PROVIDERS.map((p) => window.api.ai.clearApiKey(p.id)));
+    await Promise.all(PROVIDERS.filter((p) => p.id !== "local").map((p) => window.api.ai.clearApiKey(p.id)));
     refreshStatus();
     alert("Done.");
   }
@@ -188,52 +203,109 @@ export default function Settings() {
             ))}
           </div>
 
-          {aiConfigured === null && <p className="mt-3 text-[13px] text-faint">Checking…</p>}
-          {aiConfigured === true && (
-            <p className="ok-text mt-3 flex items-center gap-1.5">
-              <IconCheck size={14} />
-              {PROVIDERS.find((p) => p.id === provider)?.label} configured and ready.
-            </p>
-          )}
-          {aiConfigured === false && (
-            <p className="error-box mt-3">
-              No API key found for {PROVIDERS.find((p) => p.id === provider)?.label}. Paste one below, or
-              add it to the <code className="font-mono">.env</code> file and restart.
-            </p>
-          )}
+          {provider === "local" ? (
+            <>
+              {localInfo === null && <p className="mt-3 text-[13px] text-faint">Checking for Ollama…</p>}
+              {localInfo?.running === false && (
+                <p className="error-box mt-3">
+                  Can't reach Ollama at 127.0.0.1:11434. Install it from{" "}
+                  <a href="https://ollama.com" target="_blank" rel="noreferrer" className="font-medium underline">
+                    ollama.com
+                  </a>
+                  , make sure it's running, then{" "}
+                  <button onClick={refreshLocal} className="font-medium underline">
+                    recheck
+                  </button>
+                  .
+                </p>
+              )}
+              {localInfo?.running === true && localInfo.models.length === 0 && (
+                <p className="error-box mt-3">
+                  Ollama is running but has no models installed. Run{" "}
+                  <code className="font-mono">ollama pull llama3.1:8b</code> in a terminal, then{" "}
+                  <button onClick={refreshLocal} className="font-medium underline">
+                    recheck
+                  </button>
+                  .
+                </p>
+              )}
+              {localInfo?.running === true && localInfo.models.length > 0 && (
+                <>
+                  <p className="ok-text mt-3 flex items-center gap-1.5">
+                    <IconCheck size={14} />
+                    Ollama is running — pick which installed model to use.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {localInfo.models.map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => selectLocalModel(m)}
+                        className={`chip ${(localModel || localInfo.preferred) === m ? "chip-active" : "chip-idle"}`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              <p className="mt-2.5 text-[11.5px] leading-relaxed text-faint">
+                Runs entirely on this machine — no API key, no data leaves your device. Requires{" "}
+                <a href="https://ollama.com" target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
+                  ollama.com
+                </a>{" "}
+                installed and running separately.
+              </p>
+            </>
+          ) : (
+            <>
+              {aiConfigured === null && <p className="mt-3 text-[13px] text-faint">Checking…</p>}
+              {aiConfigured === true && (
+                <p className="ok-text mt-3 flex items-center gap-1.5">
+                  <IconCheck size={14} />
+                  {PROVIDERS.find((p) => p.id === provider)?.label} configured and ready.
+                </p>
+              )}
+              {aiConfigured === false && (
+                <p className="error-box mt-3">
+                  No API key found for {PROVIDERS.find((p) => p.id === provider)?.label}. Paste one below, or
+                  add it to the <code className="font-mono">.env</code> file and restart.
+                </p>
+              )}
 
-          <div className="mt-3.5 flex items-center gap-2">
-            <input
-              type="password"
-              className="input"
-              placeholder={`Paste your ${PROVIDERS.find((p) => p.id === provider)?.label} API key…`}
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-            />
-            <button onClick={saveKey} disabled={!apiKeyInput.trim()} className="btn-primary shrink-0">
-              Save
-            </button>
-            {aiConfigured && (
-              <button onClick={clearKey} className="btn-secondary shrink-0">
-                Clear
-              </button>
-            )}
-          </div>
-          {keySaved && <p className="ok-text mt-2 text-xs">Saved</p>}
-          <p className="mt-2.5 text-[11.5px] leading-relaxed text-faint">
-            Saved to this project's <code className="font-mono">.env</code> file and stored encrypted on
-            this device with your OS keychain (which takes priority at runtime) — never sent anywhere
-            except to the selected provider's API. Get a free key at{" "}
-            <a
-              href={PROVIDERS.find((p) => p.id === provider)?.keyUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="font-medium text-accent hover:underline"
-            >
-              {PROVIDERS.find((p) => p.id === provider)?.keyUrl.replace("https://", "")}
-            </a>
-            .
-          </p>
+              <div className="mt-3.5 flex items-center gap-2">
+                <input
+                  type="password"
+                  className="input"
+                  placeholder={`Paste your ${PROVIDERS.find((p) => p.id === provider)?.label} API key…`}
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                />
+                <button onClick={saveKey} disabled={!apiKeyInput.trim()} className="btn-primary shrink-0">
+                  Save
+                </button>
+                {aiConfigured && (
+                  <button onClick={clearKey} className="btn-secondary shrink-0">
+                    Clear
+                  </button>
+                )}
+              </div>
+              {keySaved && <p className="ok-text mt-2 text-xs">Saved</p>}
+              <p className="mt-2.5 text-[11.5px] leading-relaxed text-faint">
+                Saved to this project's <code className="font-mono">.env</code> file and stored encrypted on
+                this device with your OS keychain (which takes priority at runtime) — never sent anywhere
+                except to the selected provider's API. Get a free key at{" "}
+                <a
+                  href={PROVIDERS.find((p) => p.id === provider)?.keyUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-accent hover:underline"
+                >
+                  {PROVIDERS.find((p) => p.id === provider)?.keyUrl.replace("https://", "")}
+                </a>
+                .
+              </p>
+            </>
+          )}
         </div>
       </section>
 

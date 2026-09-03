@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { GeminiProvider } from "./ai/GeminiProvider";
 import { OpenAIProvider } from "./ai/OpenAIProvider";
 import { AnthropicProvider } from "./ai/AnthropicProvider";
+import { LocalProvider, DEFAULT_LOCAL_MODEL } from "./ai/LocalProvider";
 import type { AIProvider } from "./ai/AIProvider";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { loadEnvFile } from "./env";
@@ -19,9 +20,11 @@ const ENV_KEY_NAME: Record<AIProviderName, string> = {
   gemini: "GEMINI_API_KEY",
   openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
+  local: "", // Ollama needs no key — it's a local server
 };
 
 function buildProvider(name: AIProviderName): AIProvider | null {
+  if (name === "local") return new LocalProvider(db.getSetting("local_model") ?? DEFAULT_LOCAL_MODEL);
   const apiKey = db.getApiKey(name) ?? process.env[ENV_KEY_NAME[name]];
   if (!apiKey) return null;
   if (name === "openai") return new OpenAIProvider(apiKey);
@@ -31,10 +34,15 @@ function buildProvider(name: AIProviderName): AIProvider | null {
 
 // The active provider goes first; any other provider with a configured key follows as a
 // fallback, so a single provider having a bad day (rate limits, an outage) doesn't stop
-// answers — see handlers.ts, which tries each in order until one succeeds.
+// answers — see handlers.ts, which tries each in order until one succeeds. Local (Ollama)
+// sits last: if it's installed, a cloud outage silently degrades to offline answers; if it
+// isn't, the connection to 127.0.0.1 is refused instantly and the chain moves on.
 function getConfiguredProviders(): AIProvider[] {
   const active = db.getActiveProvider();
-  const order: AIProviderName[] = [active, ...(["gemini", "openai", "anthropic"] as const).filter((p) => p !== active)];
+  const order: AIProviderName[] = [
+    active,
+    ...(["gemini", "openai", "anthropic", "local"] as const).filter((p) => p !== active),
+  ];
   return order.map(buildProvider).filter((p): p is AIProvider => p !== null);
 }
 

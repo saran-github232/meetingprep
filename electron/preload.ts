@@ -16,6 +16,7 @@ import type {
   Plan,
 } from "./db/db";
 import type { ShieldCapability } from "./stealth";
+import type { LocalModelsInfo } from "./ai/LocalProvider";
 
 function streamChannel(
   startChannel: string,
@@ -119,6 +120,7 @@ const api = {
       ipcRenderer.invoke("ai:setApiKey", provider, key),
     clearApiKey: (provider: AIProviderName): Promise<void> =>
       ipcRenderer.invoke("ai:clearApiKey", provider),
+    localModels: (): Promise<LocalModelsInfo> => ipcRenderer.invoke("ai:localModels"),
     classify: (question: string): Promise<QuestionCategory> => ipcRenderer.invoke("ai:classify", question),
     summarizeNotes: (transcript: string): Promise<MeetingNoteSummary> =>
       ipcRenderer.invoke("ai:summarizeNotes", transcript),
