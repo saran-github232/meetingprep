@@ -118,7 +118,7 @@ export function setSetting(key: string, value: string) {
   ).run(key, value);
 }
 
-export type AIProviderName = "gemini" | "openai" | "anthropic" | "local";
+export type AIProviderName = "gemini" | "openai" | "anthropic" | "nvidia" | "local";
 
 export function getApiKey(provider: AIProviderName): string | null {
   const stored = getSetting(`${provider}_api_key_encrypted`);

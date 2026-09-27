@@ -47,14 +47,24 @@ declined request in different clothes.
   window-level stuff), expose it in `preload.ts`, and it appears typed on
   `window.api`. Never bypass this bridge.
 - **AI providers** (`electron/ai/*Provider.ts`) all implement `AIProvider`
-  (`electron/ai/AIProvider.ts`) — Gemini, OpenAI, Anthropic, and Local (Ollama, no
-  key, hits `127.0.0.1:11434`). `getConfiguredProviders()` in `main.ts` builds a
-  fallback chain (active provider first, others after) that `handlers.ts` walks
-  in order — a provider having a bad day doesn't stop answers. Adding a fifth
-  provider means: implement `AIProvider`, add it to `AIProviderName` in
-  `electron/db/db.ts`, and thread it through `ENV_KEY_NAME` in both `main.ts` and
-  `handlers.ts` (yes, duplicated in both today — not a mistake to silently fix,
-  just how it's wired) plus the `PROVIDERS` array in `src/pages/Settings.tsx`.
+  (`electron/ai/AIProvider.ts`) — Gemini, OpenAI, Anthropic, NVIDIA NIM (OpenAI-compatible
+  hosted API at `integrate.api.nvidia.com`), and Local (Ollama, no key, hits
+  `127.0.0.1:11434`). `getConfiguredProviders()` in `main.ts` builds a fallback chain
+  (active provider first, others after) that `handlers.ts` walks in order — a provider
+  having a bad day doesn't stop answers. Adding a sixth provider means: implement
+  `AIProvider`, add it to `AIProviderName` in `electron/db/db.ts`, and thread it through
+  `ENV_KEY_NAME` in both `main.ts` and `handlers.ts` (yes, duplicated in both today — not a
+  mistake to silently fix, just how it's wired) plus the `PROVIDERS` array in
+  `src/pages/Settings.tsx` and the endpoint table in `electron/ai/validate.ts`.
+- **Error handling** is centralized: providers throw with a numeric `.status` where they have
+  one, and `classifyError`/`friendlyErrorMessage` in `electron/ai/retry.ts` turn any failure
+  into user-facing guidance (invalid key / model retired 404+410 / rate limit / 5xx /
+  timeout / network). Don't bypass it — new failure modes belong in the classifier with a
+  test in `tests/errors.test.ts`.
+- **Key validation** ("Test connection" button) lives in `electron/ai/validate.ts` — one
+  cheap real request per provider. Note NVIDIA's `GET /v1/models` is PUBLIC (does not check
+  auth), so NVIDIA validates via a minimal `max_tokens` chat completion instead, walking the
+  model chain past retired (410) models.
 - **Window chrome**: frameless (`frame: false`) on every platform. `src/App.tsx`
   draws its own titlebar (traffic lights, drag region via
   `[-webkit-app-region:drag]`/`no-drag` Tailwind arbitrary properties) and calls
@@ -82,10 +92,14 @@ declined request in different clothes.
   the default for a new simple persisted setting — don't add a bespoke IPC channel
   and DB column for something this generic covers (see `local_model` in
   `Settings.tsx` for the pattern).
-- No test suite, no lint script (`package.json` scripts: `dev`, `build`, `preview`,
-  `typecheck`, `dist` — that's all of them). Verify changes with `npm run
-  typecheck` and `npm run build`, both of which must pass clean before calling
-  anything done.
+- There is now a test suite (`npm test` → `node --test tests/`, no extra dependencies —
+  Node ≥23.6 strips types natively). The trade-off: test-imported modules must be pure,
+  import-free, and avoid non-erasable syntax (no parameter properties/enums) — that's why
+  NVIDIA's wire helpers live in `electron/ai/nvidiaWire.ts` (plain functions, zero imports)
+  instead of inside `NvidiaProvider.ts`. Tests import source with explicit `.ts` extensions
+  (`../electron/ai/retry.ts`). `tsc -b` doesn't cover `tests/` (tsconfig includes only
+  `src` + `electron`); run `npm test` explicitly. Keep all three green before calling work
+  done: `npm test`, `npm run typecheck`, `npm run build`.
 - No unrequested abstractions, no speculative config, no new dependency when a
   couple of lines or Tailwind/native-CSS/Electron's own API already does it — see
   `git log` for examples (e.g. the Liquid Glass reskin was one CSS/token-layer

@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { GeminiProvider } from "./ai/GeminiProvider";
 import { OpenAIProvider } from "./ai/OpenAIProvider";
 import { AnthropicProvider } from "./ai/AnthropicProvider";
+import { NvidiaProvider } from "./ai/NvidiaProvider";
 import { LocalProvider, DEFAULT_LOCAL_MODEL } from "./ai/LocalProvider";
 import type { AIProvider } from "./ai/AIProvider";
 import { registerIpcHandlers } from "./ipc/handlers";
@@ -20,6 +21,7 @@ const ENV_KEY_NAME: Record<AIProviderName, string> = {
   gemini: "GEMINI_API_KEY",
   openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
+  nvidia: "NVIDIA_API_KEY",
   local: "", // Ollama needs no key — it's a local server
 };
 
@@ -29,6 +31,7 @@ function buildProvider(name: AIProviderName): AIProvider | null {
   if (!apiKey) return null;
   if (name === "openai") return new OpenAIProvider(apiKey);
   if (name === "anthropic") return new AnthropicProvider(apiKey);
+  if (name === "nvidia") return new NvidiaProvider(apiKey, process.env.NVIDIA_MODEL?.trim() || undefined);
   return new GeminiProvider(apiKey);
 }
 
@@ -41,7 +44,7 @@ function getConfiguredProviders(): AIProvider[] {
   const active = db.getActiveProvider();
   const order: AIProviderName[] = [
     active,
-    ...(["gemini", "openai", "anthropic", "local"] as const).filter((p) => p !== active),
+    ...(["gemini", "openai", "anthropic", "nvidia", "local"] as const).filter((p) => p !== active),
   ];
   return order.map(buildProvider).filter((p): p is AIProvider => p !== null);
 }

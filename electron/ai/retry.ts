@@ -58,13 +58,63 @@ function isRetryable(err: unknown): boolean {
   return /\b(429|503)\b/.test(message);
 }
 
-// Rewrites a busy-provider error into a message that tells the user what's actually going on
-// (Google/OpenAI/Anthropic's servers, not the app) and what to do about it, after retries were
-// already exhausted by withRetry().
+export type ErrorKind =
+  | "invalid_key"
+  | "model_not_found"
+  | "rate_limited"
+  | "server_error"
+  | "timeout"
+  | "network"
+  | "request"
+  | "unknown";
+
+// Classifies an error thrown anywhere in the AI-call path. Providers throw with a numeric
+// .status when they have one; Gemini's SDK signals a bad key as a 400 with a distinctive
+// message, and network failures surface as fetch TypeErrors whose text varies by cause —
+// so both shape and message are checked.
+export function classifyError(err: unknown): ErrorKind {
+  const status = (err as { status?: number } | null)?.status;
+  const message = err instanceof Error ? err.message : String(err);
+
+  if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) return "timeout";
+  if (status === 401 || status === 403) return "invalid_key";
+  if (/\bapi key\b.*(invalid|not valid|incorrect)|\binvalid api key\b|(401|403):\s*["']?credential/i.test(message))
+    return "invalid_key";
+  if (status === 404 || status === 410 || /\b(404|410)\b/.test(message)) return "model_not_found";
+  if (status === 429 || /\b(429)\b/.test(message)) return "rate_limited";
+  if (
+    /\b(fetch failed|ENOTFOUND|ECONNREFUSED|EAI_AGAIN|ECONNRESET|ECONNABORTED|network|getaddrinfo|socket hang up)\b/i.test(
+      message
+    )
+  )
+    return "network";
+  if ((status !== undefined && status >= 500) || /\b(500|502|503|504)\b/.test(message)) return "server_error";
+  if (status !== undefined || /\b(400|422)\b/.test(message)) return "request";
+  return "unknown";
+}
+
+// Rewrites an error into a message a normal user can act on — what went wrong on whose side
+// and what to do about it — with the raw provider error kept below a separator so details
+// aren't lost. Used by handlers.ts after the provider/retry chain is exhausted.
 export function friendlyErrorMessage(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
-  if (isRetryable(err)) {
-    return `The AI provider is temporarily overloaded (busy servers on their end, not this app). Already retried automatically — please wait a bit and try again, or switch provider in Settings if you have another key configured.\n\n${message}`;
+  const detail = `\n\nTechnical detail: ${message}`;
+  switch (classifyError(err)) {
+    case "invalid_key":
+      return `The API key was rejected by the AI provider. Check that the key is pasted correctly and still active in Settings → AI provider (a key for one provider won't work on another — e.g. an NVIDIA "nvapi-…" key must be saved with the NVIDIA provider selected).${detail}`;
+    case "model_not_found":
+      return `The AI provider doesn't recognize the configured model for your key. If you set a model override (e.g. NVIDIA_MODEL in .env), check its exact name against the provider's model catalog, or remove the override to use the built-in defaults.${detail}`;
+    case "rate_limited":
+      return `The AI provider is rate-limiting this key (too many requests, or the free tier's quota for now). Already retried automatically — wait a bit and try again, or switch provider in Settings if you have another key configured.${detail}`;
+    case "server_error":
+      return `The AI provider's servers are having a problem right now (their side, not this app). Already retried automatically — try again in a moment, or switch provider in Settings if you have another key configured.${detail}`;
+    case "timeout":
+      return `The AI provider didn't respond in time and the request was cancelled. Check your internet connection, then try again — long generations can also just be slow on the provider's side.${detail}`;
+    case "network":
+      return `Couldn't reach the AI provider — check your internet connection (or, for Local (Ollama), that Ollama is running).${detail}`;
+    case "request":
+      return `The AI provider rejected the request as malformed. If you've overridden the model or edited configuration, undo that change and try again.${detail}`;
+    default:
+      return message;
   }
-  return message;
 }

@@ -1,6 +1,6 @@
 # MeetingPrep AI
 
-A premium desktop studio for interview and meeting preparation — practice questions, code problems, spoken mock interviews, resume tailoring with ATS scoring, and live note-taking — powered by Gemini, OpenAI, Anthropic, or a fully local model via Ollama (your choice).
+A premium desktop studio for interview and meeting preparation — practice questions, code problems, spoken mock interviews, resume tailoring with ATS scoring, and live note-taking — powered by Gemini, OpenAI, Anthropic, NVIDIA NIM, or a fully local model via Ollama (your choice).
 
 Built for learning and practice: it never impersonates you and never secretly answers on your behalf during a live evaluation. It includes a **capture shield** you can switch on to keep the window out of screen shares and recordings while you use it for *your own* notes and prep — see [Ethical boundary](#ethical-boundary) and [Capture shield](#capture-shield) below.
 
@@ -45,7 +45,7 @@ Built for learning and practice: it never impersonates you and never secretly an
 ### Settings & privacy
 
 - **Capture shield** — one toggle (sidebar, Settings, or `Ctrl+Shift+H`) that excludes the app window from screen sharing, recording, and screenshots while it stays fully visible on your own display. Persisted across restarts, with the detected OS capability shown in Settings. See [Capture shield](#capture-shield).
-- **AI provider** — Gemini / OpenAI / Anthropic / Local (Ollama), per-provider encrypted key entry, automatic model fallback.
+- **AI provider** — Gemini / OpenAI / Anthropic / NVIDIA NIM / Local (Ollama), per-provider encrypted key entry, a **Test connection** button that verifies your key against the provider's real API, automatic model fallback, and plain-language error messages that distinguish a rejected key from a rate limit, a retired model, or no network.
 - **Theme** — light / dark / follow-system, with a Liquid Glass design system (translucent blurred surfaces over an ambient gradient wash) in both.
 - **Plan** — a local Free/Pro preview toggle with a features matrix (no billing connected yet).
 - **Data controls** — wipe history / resume context / everything.
@@ -73,7 +73,8 @@ Everything you need to paste goes in one file: **`.env`**, in the project root (
 
 | You need | Goes in | Variable name(s) | Required? |
 |---|---|---|---|
-| One AI provider key | `.env` | `GEMINI_API_KEY` **or** `OPENAI_API_KEY` **or** `ANTHROPIC_API_KEY` | Yes — pick one |
+| One AI provider key | `.env` | `GEMINI_API_KEY` **or** `OPENAI_API_KEY` **or** `ANTHROPIC_API_KEY` **or** `NVIDIA_API_KEY` | Yes — pick one |
+| Optional NVIDIA model override | `.env` | `NVIDIA_MODEL` | No — only for NVIDIA, see [NVIDIA NIM provider](#nvidia-nim-provider) |
 | Firebase config (for Resources tab) | `.env` | `VITE_FIREBASE_API_KEY` + 5 more `VITE_FIREBASE_*` vars | No — only if you want Resources |
 
 **1. Get the code**
@@ -99,14 +100,16 @@ npm install
 | Gemini (free tier available) | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | OpenAI | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
 | Anthropic | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) |
+| NVIDIA NIM (free credits for new accounts) | [build.nvidia.com](https://build.nvidia.com) — see [NVIDIA NIM provider](#nvidia-nim-provider) |
 
-Open `.env` in the project root and paste it on the matching line — leave the other two blank:
+Open `.env` in the project root and paste it on the matching line — leave the others blank:
 ```
 GEMINI_API_KEY=paste-your-key-here
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
+NVIDIA_API_KEY=
 ```
-Then in the app, go to **Settings → AI Provider** and select the one you filled in (it defaults to Gemini).
+Then in the app, go to **Settings → AI Provider** and select the one you filled in (it defaults to Gemini). Press **Test connection** to verify the key is accepted before your first question — it makes a small real request and tells you plainly whether the key works.
 
 *Alternative:* skip editing `.env` by hand — paste the key directly into **Settings → AI Provider** in the running app instead. It writes it into `.env` for you and also stores an encrypted copy in your OS keychain.
 
@@ -130,6 +133,38 @@ Full console-by-console steps (including the security rules you must paste in) a
 npm run dev
 ```
 This starts Vite + Electron together; the app window opens automatically with hot reload. If you edited `.env` while it was already running, restart it — `.env` is only read at startup.
+
+## NVIDIA NIM provider
+
+[NVIDIA Build](https://build.nvidia.com) hosts NVIDIA's model catalog behind an OpenAI-compatible API ("NIM"). This app ships it as a first-class provider, so an `nvapi-…` key works exactly like a Gemini/OpenAI/Anthropic key.
+
+**Getting and configuring a key**
+
+1. Sign in at [build.nvidia.com](https://build.nvidia.com) with an NVIDIA account (free; new accounts get trial credits).
+2. On any model page (or the header), click **Get API Key** and generate a key with the **AI Foundation Models and Endpoints** scope enabled. Keys start with `nvapi-`.
+3. Either paste the key in **Settings → AI Provider → NVIDIA NIM → Save**, or put it in `.env` as `NVIDIA_API_KEY=nvapi-…` and restart the app. The Settings page saves it encrypted in your OS keychain *and* into the gitignored `.env`; never commit it.
+4. Select **NVIDIA NIM** in Settings → AI Provider and press **Test connection**. A green result means the key authenticated against NVIDIA's live API; a red one tells you exactly what failed (bad key, no network, rate limit…).
+
+**Model selection**
+
+The default chain is:
+
+1. `nvidia/nemotron-3-super-120b-a12b` — NVIDIA's first-party MoE model (120B total, ~12B active per token): fast streaming, 128k context, strong instruction following for this app's structured answer formats, and a reasoning toggle disabled via NIM's documented `chat_template_kwargs` so no thinking traces pollute the output.
+2. `nvidia/nemotron-3.5-lightning-30b-a3b` — newer, lighter MoE (~3B active); the speed pick if the primary is busy.
+3. `z-ai/glm-5.3-flash` — a fast third-party model on the same NVIDIA-hosted API, so the chain stays inside one provider.
+
+This chain was **verified live against `integrate.api.nvidia.com` in September 2026** — NVIDIA retires models regularly (the once-default `meta/llama-3.3-70b-instruct` went end-of-life on 2026-08-26 and returns `410 Gone`), so the defaults here are models confirmed available at writing time, not just catalog listings. If a default is ever retired, the provider automatically falls through to the next.
+
+**Pinning a different model** — set `NVIDIA_MODEL` in `.env` to the exact catalog name (from [build.nvidia.com/models](https://build.nvidia.com/models)) and restart:
+
+```
+NVIDIA_API_KEY=nvapi-...
+NVIDIA_MODEL=nvidia/nemotron-3-ultra-550b-a55b
+```
+
+A pinned model is used *alone* (no fallback), so a typo'd name surfaces as a clear error instead of being silently masked. If NVIDIA retires your pinned model you'll get a "model not found / end of life" error — remove the override or pick another name.
+
+**How requests are made** — `POST https://integrate.api.nvidia.com/v1/chat/completions` with `Authorization: Bearer <key>` and an OpenAI-shaped JSON body, streaming via SSE. The key lives only in the Electron main process; the renderer never sees it, and error messages never echo it.
 
 ## Plan / subscription
 
@@ -241,7 +276,8 @@ Packaging notes:
 - **Design system** — a Liquid Glass–style Tailwind v3 token layer: translucent, backdrop-blurred surfaces (`bg-surface/70` + `backdrop-blur`) with a soft specular top highlight, floating over an ambient multi-color gradient wash (daylight glass in light mode, smoked glass in dark mode), theme-aware floating sidebar, cyan-teal accent glow, Outfit + Geist typography with graceful system fallbacks, custom icon set, component classes for cards/buttons/fields/chips, subtle grain, entrance animations, styled scrollbars and focus rings.
 - **SQLite** (Node's built-in `node:sqlite`, no native compile step) for local history, resume context, meeting notes, and settings — stored under your OS's app-data folder.
 - **Electron `safeStorage`** (OS keychain / DPAPI / libsecret) encrypts your resume, meeting notes, tailored resumes, and API keys at rest.
-- **Gemini, OpenAI, Anthropic, and Local (Ollama)** — four interchangeable `AIProvider` implementations (`electron/ai/*Provider.ts`) with automatic model and provider fallback, all streaming token-by-token. Local talks to [Ollama](https://ollama.com) on `127.0.0.1:11434` — no API key, nothing leaves the machine, and it's picked last in the fallback chain so a missing/not-running Ollama install fails fast instead of stalling.
+- **Gemini, OpenAI, Anthropic, NVIDIA NIM, and Local (Ollama)** — five interchangeable `AIProvider` implementations (`electron/ai/*Provider.ts`) with automatic model and provider fallback, all streaming token-by-token. NVIDIA NIM talks to `integrate.api.nvidia.com` with the same OpenAI-shaped payload the OpenAI provider uses (see [NVIDIA NIM provider](#nvidia-nim-provider)). Local talks to [Ollama](https://ollama.com) on `127.0.0.1:11434` — no API key, nothing leaves the machine, and it's picked last in the fallback chain so a missing/not-running Ollama install fails fast instead of stalling.
+- **Test connection & error mapping** — every provider key can be verified against its provider's live API before real use (`electron/ai/validate.ts`, one cheap request), and all AI errors pass through a single classifier (`electron/ai/retry.ts`) that rewrites raw HTTP failures into plain-language guidance: rejected key, retired/unknown model, rate limit, provider outage, timeout, or no network — with the technical detail kept after a separator.
 - **Voice** — Web Speech API for dictation and live transcription (auto-restarting recognizer, interim results, tolerant of a few transient "network" errors from Chromium's speech service before surfacing one) and OS speech synthesis for read-aloud, wrapped in `src/lib/speech.ts`.
 - **Resume PDF import** — `pdf-parse` (pdf.js) extracts text locally in the main process; kept external to the bundle so pdf.js resolves its worker correctly (also why `asar: false` in packaging).
 - **AI text rendering** — inline markdown (bold/italic/code) from model output is rendered through a sanitized pipeline (`src/lib/markdown.ts` + DOMPurify).
@@ -250,12 +286,84 @@ Packaging notes:
 - All AI calls and database access happen in the Electron **main process**; the UI (renderer) only talks to it through a typed IPC bridge (`electron/preload.ts`) with `contextIsolation` on, `sandbox` on, and `nodeIntegration` off — the renderer never sees your API keys or touches the filesystem directly.
 - **Resources** is the one exception to that main-process-only rule: it uses the `firebase` web SDK directly in the renderer (`src/lib/firebase.ts`), because Firebase Auth/Firestore/Storage are designed to run client-side and a Firebase web config isn't a secret the way an AI provider key is. Admin/User roles are enforced by Firestore/Storage security rules (server-side), not by the client.
 
+## Troubleshooting
+
+All AI failures surface as plain-language messages — the raw provider error is kept below a "Technical detail:" separator. The common ones:
+
+| Message / symptom | Likely cause & fix |
+|---|---|
+| **"No API key found for …"** (Settings) | The selected provider has no key saved. Paste one in Settings → AI Provider → **Save**, or set the matching `*_API_KEY` in `.env` and restart the app (`.env` is read once at startup). |
+| **"The API key was rejected by the AI provider"** (401/403) | The key is wrong, revoked, or saved under the wrong provider. Keys only work with their own provider selected — an NVIDIA `nvapi-…` key must be saved while **NVIDIA NIM** is selected; pasting it under Gemini/OpenAI/Anthropic always fails. Regenerate the key if needed, press **Test connection**, and switch provider chips to match. |
+| **"The AI provider doesn't recognize the configured model"** (404/410) | A `NVIDIA_MODEL` override has a typo, or the model was retired — NVIDIA retires models regularly and retired ones answer `410 Gone`. Remove the override or pick a live name from [build.nvidia.com/models](https://build.nvidia.com/models). |
+| **"Rate-limiting this key"** (429) | Quota exhausted for now; the app already retried automatically. Wait, or switch provider. NVIDIA trial credits also run out — check your balance on build.nvidia.com. |
+| **"The AI provider's servers are having a problem"** (5xx) | Provider outage. Retry shortly, or switch provider. |
+| **"Couldn't reach the AI provider"** | No internet — or, for Local (Ollama), Ollama isn't running. **Test connection** re-runs the same check on demand. |
+| **"…didn't respond in time"** | Slow provider or flaky network. Retry; if it persists, try a different provider or a lighter model. |
+| **Test connection fails but the key looks right** | Check for stray spaces/quotes when pasting, confirm the key's scope (NVIDIA keys need **AI Foundation Models and Endpoints** enabled), and confirm your network allows the provider's domain (corporate proxies often block AI endpoints). |
+| **App won't start / blank window** | Run `npm run build` and check for errors; verify Node.js 22.5+ (`node --version`). Delete `dist-electron/` and rebuild if the main process is stale. |
+| **`npm run dev` opens nothing** | Check the terminal for the Vite URL; if the port is taken Vite picks another — close the stray dev instance and re-run. |
+| **`.env` changes don't take effect** | Fully quit the app and start it again — `.env` is only read at startup. |
+
+## Testing
+
+```
+npm test          # unit/integration suite (node --test, no extra dependencies)
+npm run typecheck # strict TypeScript across electron/ and src/
+npm run build     # full production build (type-check + bundle)
+```
+
+The suite (`tests/`) covers the pure logic the app depends on: the error classifier (401/403 → rejected key, 404/410 → model retired, 429 → rate limit, timeouts, network failures), retry/fallback semantics (including "never stitch two models mid-stream"), the prompt parsers (meeting summaries, prep packs, question lists), and the NVIDIA wire format (endpoint, `Bearer` auth header, payload shape, nemotron `thinking: false` flag, and the streamed `<think>`-block filter, including chunks split mid-tag).
+
+**End-to-end verification** (what "done" means beyond the unit tests):
+
+1. `npm run build` succeeds and `npx electron .` opens the app.
+2. Settings → AI Provider shows all five providers; selecting one shows *that* provider's key status (per-provider, not global).
+3. Paste a real key → **Test connection** → green "Key is valid" message.
+4. Paste a deliberately invalid key → **Test connection** → a red, specific message (e.g. NVIDIA: "The API key was rejected…"), never a raw HTTP dump and never the key itself.
+5. Ask a Practice question → structured answer streams in section by section.
+
+The NVIDIA request path was additionally verified against the **live** `integrate.api.nvidia.com` API: the wire format is accepted (invalid keys get a definitive 403 "Authorization failed", retired models a 410), and the bundled validation code was executed for real against NVIDIA, Gemini, OpenAI, and Anthropic endpoints. A full *successful* generation with NVIDIA requires a valid `nvapi-` key with credits — by design that secret never exists in this repo or CI, so run step 5 yourself with your own key.
+
+## Example output
+
+Illustrative example (not a live API response) of **Settings → AI Provider → NVIDIA NIM → Test connection**:
+
+- Valid key: ✅ `Key is valid — NVIDIA accepted it (validated with nvidia/nemotron-3-super-120b-a12b).`
+- Invalid key: ❌ `The API key was rejected by the AI provider. Check that the key is pasted correctly and still active in Settings → AI provider (a key for one provider won't work on another — e.g. an NVIDIA "nvapi-…" key must be saved with the NVIDIA provider selected).`
+- No key yet: ❌ `No API key saved for this provider yet. Paste one above (or in .env) first.`
+
+Illustrative example (not a live API response) of a **Practice** answer, showing the fixed section format every provider is prompted to produce:
+
+```
+### Answer
+Start with kubectl describe pod and the events section — in most restart loops it names the
+probe or OOM reason directly. Then check the previous container's logs.
+
+### Why
+The events timeline distinguishes liveness-probe kills from OOMKills from node pressure, and
+each has a different fix.
+
+### Example
+On our UAT cluster, a service looped every ~90s; describe showed Liveness probe failed,
+which traced to a /healthz endpoint that needed a DB connection.
+
+### Key Points
+- describe pod + events first
+- previous-container logs for the crash
+- check probe timing vs. startup time
+
+### Follow-up
+- How would you tell OOMKill from a probe failure?
+- When would you tune initialDelaySeconds?
+```
+
 ## Privacy & data
 
 - Outside of Resources and speech features, nothing is sent anywhere except to your selected AI provider's API, and only when you submit a question or document. No telemetry, no analytics, no background network calls.
 - **Voice dictation & live transcription** use the browser's Web Speech API: Chromium streams microphone audio to Google's speech service for recognition and returns text. Text is processed locally; only what you explicitly send to the AI provider (e.g. "summarize this transcript") leaves the machine beyond that. Read-aloud uses your OS voices and works offline.
 - **Capture shield** changes only what other programs can capture — it sends nothing anywhere and is always user-controlled, never automatic.
 - Resume context, meeting notes, tailored resumes, and API keys are encrypted at rest; practice history is stored locally but unencrypted (it's not sensitive by design). Resource files live in your Firebase Storage bucket, not on-device.
+- **API keys never reach the renderer.** All provider calls (and the Test-connection check) run in the Electron main process behind the typed IPC bridge; the UI sends "please use this key", never receives it back, and error messages are built to never echo the key. `.env` is gitignored, and `.env.example` contains placeholders only.
 - Settings includes full data-deletion controls (wipe history / wipe resume / wipe everything) for local data; resources are deleted from the Resources page itself (Admin only).
 
 ## Ethical boundary
@@ -278,7 +386,8 @@ electron/            Main process
   export.ts            Save-dialog + Markdown/PDF export
   menu.ts              Native application menu (File/Edit/View/Go/Window/Help), popped up via the titlebar menu button
   preload.ts           Typed contextBridge API exposed to the renderer
-  ai/                  Provider interface, Gemini/OpenAI/Anthropic/Local(Ollama) implementations, prompts, retry/fallback
+  ai/                  Provider interface, Gemini/OpenAI/Anthropic/NVIDIA/Ollama implementations,
+                       prompts, retry/fallback, key validation (validate.ts), NVIDIA wire helpers (nvidiaWire.ts)
   db/                  SQLite schema + access (settings, history, notes, tailoring results)
   ipc/                 IPC handlers (qa, coding, resume, notes, stealth, AI, export)
   security/            OS-keychain encryption helpers
@@ -289,5 +398,7 @@ src/                 Renderer (React UI)
                        markdown.ts (sanitized inline MD), theme, answer parsing, export, plan/feature gating,
                        firebase + auth
 public/               favicon
+tests/                Unit/integration suite (node --test): error mapping, retry/fallback,
+                      prompt parsers, NVIDIA wire format — run with `npm test`
 .github/workflows/    build.yml (installer build on v* tag pushes)
 ```

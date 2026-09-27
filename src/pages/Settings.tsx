@@ -3,6 +3,7 @@ import { useTheme, type Theme } from "../lib/useTheme";
 import { useStealth } from "../lib/useStealth";
 import type { AIProviderName, Plan } from "../../electron/db/db";
 import type { LocalModelsInfo } from "../../electron/ai/LocalProvider";
+import type { ProviderTestResult } from "../../electron/ai/validate";
 import { FEATURES } from "../lib/plan";
 import { IconCheck, IconMonitor, IconMoon, IconShield, IconSun } from "../components/icons";
 
@@ -10,6 +11,7 @@ const PROVIDERS: { id: AIProviderName; label: string; keyUrl: string }[] = [
   { id: "gemini", label: "Gemini", keyUrl: "https://aistudio.google.com/apikey" },
   { id: "openai", label: "OpenAI", keyUrl: "https://platform.openai.com/api-keys" },
   { id: "anthropic", label: "Anthropic", keyUrl: "https://console.anthropic.com/settings/keys" },
+  { id: "nvidia", label: "NVIDIA NIM", keyUrl: "https://build.nvidia.com" },
   { id: "local", label: "Local (Ollama)", keyUrl: "https://ollama.com" },
 ];
 
@@ -18,16 +20,18 @@ const THEME_ICONS = { light: IconSun, system: IconMonitor, dark: IconMoon } as c
 export default function Settings() {
   const { theme, setTheme } = useTheme();
   const [provider, setProvider] = useState<AIProviderName>("gemini");
-  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [keySaved, setKeySaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [localInfo, setLocalInfo] = useState<LocalModelsInfo | null>(null);
   const [localModel, setLocalModel] = useState("");
   const { stealth, toggleStealth, capability } = useStealth();
 
   function refreshStatus() {
-    window.api.ai.status().then(setAiConfigured);
+    window.api.ai.hasKey(provider).then(setHasKey);
   }
 
   function refreshLocal() {
@@ -38,9 +42,15 @@ export default function Settings() {
     window.api.ai.getActiveProvider().then(setProvider);
     window.api.plan.get().then(setPlan);
     window.api.settings.get("local_model").then((v) => setLocalModel(v ?? ""));
-    refreshStatus();
     refreshLocal();
   }, []);
+
+  useEffect(() => {
+    // Reset per-provider state whenever the selected chip changes.
+    setHasKey(null);
+    setTestResult(null);
+    window.api.ai.hasKey(provider).then(setHasKey);
+  }, [provider]);
 
   async function selectLocalModel(model: string) {
     setLocalModel(model);
@@ -57,7 +67,6 @@ export default function Settings() {
     setProvider(id);
     setApiKeyInput("");
     await window.api.ai.setActiveProvider(id);
-    refreshStatus();
   }
 
   async function saveKey() {
@@ -65,6 +74,7 @@ export default function Settings() {
     await window.api.ai.setApiKey(provider, apiKeyInput.trim());
     setApiKeyInput("");
     setKeySaved(true);
+    setTestResult(null);
     setTimeout(() => setKeySaved(false), 2000);
     refreshStatus();
   }
@@ -72,7 +82,18 @@ export default function Settings() {
   async function clearKey() {
     if (!confirm(`Remove the saved ${PROVIDERS.find((p) => p.id === provider)?.label} API key?`)) return;
     await window.api.ai.clearApiKey(provider);
+    setTestResult(null);
     refreshStatus();
+  }
+
+  async function testConnection() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      setTestResult(await window.api.ai.testProvider(provider));
+    } finally {
+      setTesting(false);
+    }
   }
 
   async function wipe(what: "history" | "resume" | "all") {
@@ -89,7 +110,7 @@ export default function Settings() {
   }
 
   async function wipeAllKeys() {
-    if (!confirm("Remove all saved API keys (Gemini, OpenAI, Anthropic) from the keychain and .env? This can't be undone.")) return;
+    if (!confirm("Remove all saved API keys (Gemini, OpenAI, Anthropic, NVIDIA) from the keychain and .env? This can't be undone.")) return;
     await Promise.all(PROVIDERS.filter((p) => p.id !== "local").map((p) => window.api.ai.clearApiKey(p.id)));
     refreshStatus();
     alert("Done.");
@@ -258,14 +279,15 @@ export default function Settings() {
             </>
           ) : (
             <>
-              {aiConfigured === null && <p className="mt-3 text-[13px] text-faint">Checking…</p>}
-              {aiConfigured === true && (
+              {hasKey === null && <p className="mt-3 text-[13px] text-faint">Checking…</p>}
+              {hasKey === true && (
                 <p className="ok-text mt-3 flex items-center gap-1.5">
                   <IconCheck size={14} />
-                  {PROVIDERS.find((p) => p.id === provider)?.label} configured and ready.
+                  {PROVIDERS.find((p) => p.id === provider)?.label} configured. Use{" "}
+                  <span className="font-semibold">Test&nbsp;connection</span> below to verify the key works.
                 </p>
               )}
-              {aiConfigured === false && (
+              {hasKey === false && (
                 <p className="error-box mt-3">
                   No API key found for {PROVIDERS.find((p) => p.id === provider)?.label}. Paste one below, or
                   add it to the <code className="font-mono">.env</code> file and restart.
@@ -283,17 +305,45 @@ export default function Settings() {
                 <button onClick={saveKey} disabled={!apiKeyInput.trim()} className="btn-primary shrink-0">
                   Save
                 </button>
-                {aiConfigured && (
+                {hasKey && (
                   <button onClick={clearKey} className="btn-secondary shrink-0">
                     Clear
                   </button>
                 )}
               </div>
               {keySaved && <p className="ok-text mt-2 text-xs">Saved</p>}
+
+              <div className="mt-3 flex items-center gap-2.5">
+                <button onClick={testConnection} disabled={testing} className="btn-secondary shrink-0">
+                  {testing ? "Testing…" : "Test connection"}
+                </button>
+                <span className="text-[11.5px] text-faint">
+                  Makes a small real request to verify the key is accepted.
+                </span>
+              </div>
+              {testResult && (
+                <p className={`mt-2 text-[13px] leading-relaxed ${testResult.ok ? "ok-text" : "error-box"}`}>
+                  {testResult.ok && <span className="inline-flex items-center gap-1.5"><IconCheck size={14} />{testResult.message}</span>}
+                  {!testResult.ok && testResult.message}
+                </p>
+              )}
+
+              {provider === "nvidia" && (
+                <p className="mt-2.5 text-[11.5px] leading-relaxed text-faint">
+                  Default model: <code className="font-mono">meta/llama-3.3-70b-instruct</code>. To pin a
+                  different one, set <code className="font-mono">NVIDIA_MODEL</code> in{" "}
+                  <code className="font-mono">.env</code> (exact name from{" "}
+                  <a href="https://build.nvidia.com/models" target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
+                    build.nvidia.com/models
+                  </a>
+                  ) and restart.
+                </p>
+              )}
+
               <p className="mt-2.5 text-[11.5px] leading-relaxed text-faint">
                 Saved to this project's <code className="font-mono">.env</code> file and stored encrypted on
                 this device with your OS keychain (which takes priority at runtime) — never sent anywhere
-                except to the selected provider's API. Get a free key at{" "}
+                except to the selected provider's API. Get a key at{" "}
                 <a
                   href={PROVIDERS.find((p) => p.id === provider)?.keyUrl}
                   target="_blank"

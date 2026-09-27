@@ -200,8 +200,10 @@ ${transcript}`;
 }
 
 export function parseMeetingSummary(raw: string): { title: string; summary: string; actionItems: string[] } {
+  // \\s / \\n are double-escaped on purpose: this regex is built through a template literal,
+  // where a single \s would collapse to the letter "s" and silently break every match.
   const section = (name: string) => {
-    const match = raw.match(new RegExp(`###?\s*${name}\s*\n([\s\S]*?)(?=\n###|$)`, "i"));
+    const match = raw.match(new RegExp(`###?\\s*${name}\\s*\\n([\\s\\S]*?)(?=\\n###|$)`, "i"));
     return (match?.[1] ?? "").trim();
   };
   const actionsRaw = section("Action Items");

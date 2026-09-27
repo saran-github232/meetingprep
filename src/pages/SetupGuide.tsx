@@ -19,8 +19,8 @@ const STACK = [
   },
   {
     icon: IconSpark,
-    title: "Gemini / OpenAI / Anthropic / Ollama",
-    body: "The answer engine. Bring one API key (a free Gemini key works), or run fully offline with a local Ollama model; the app falls back across models and providers automatically.",
+    title: "Gemini / OpenAI / Anthropic / NVIDIA / Ollama",
+    body: "The answer engine. Bring one API key (a free Gemini key works, or an NVIDIA NIM key from build.nvidia.com), or run fully offline with a local Ollama model; the app falls back across models and providers automatically.",
   },
   {
     icon: IconFile,
@@ -57,7 +57,7 @@ const STEPS = [
   },
   {
     title: "Connect an AI provider",
-    body: "Get a key (a free Gemini key is enough) and paste it into Settings → AI Provider — or into .env in the project root. Prefer to run fully offline? Install Ollama and pick Local (Ollama) instead — no key needed.",
+    body: "Get a key (a free Gemini key is enough; NVIDIA NIM keys from build.nvidia.com work too) and paste it into Settings → AI Provider, then hit Test connection — or put it in .env in the project root. Prefer to run fully offline? Install Ollama and pick Local (Ollama) instead — no key needed.",
     link: { href: "/settings", label: "Open Settings → AI Provider" },
   },
   {

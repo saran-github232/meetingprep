@@ -29,9 +29,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Matches the README requirement (Node 22.5+ — the app uses node:sqlite).
+          node-version: 22
 
       - run: npm ci
+      - run: npm run test
       - run: npm run build
         env:
           # Vite bakes VITE_-prefixed vars into the bundle at build time (unlike the AI provider

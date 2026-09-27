@@ -17,6 +17,7 @@ import type {
 } from "./db/db";
 import type { ShieldCapability } from "./stealth";
 import type { LocalModelsInfo } from "./ai/LocalProvider";
+import type { ProviderTestResult } from "./ai/validate";
 
 function streamChannel(
   startChannel: string,
@@ -113,6 +114,9 @@ const api = {
   },
   ai: {
     status: (): Promise<boolean> => ipcRenderer.invoke("ai:status"),
+    hasKey: (provider: AIProviderName): Promise<boolean> => ipcRenderer.invoke("ai:hasKey", provider),
+    testProvider: (provider: AIProviderName): Promise<ProviderTestResult> =>
+      ipcRenderer.invoke("ai:testProvider", provider),
     getActiveProvider: (): Promise<AIProviderName> => ipcRenderer.invoke("ai:getActiveProvider"),
     setActiveProvider: (provider: AIProviderName): Promise<void> =>
       ipcRenderer.invoke("ai:setActiveProvider", provider),

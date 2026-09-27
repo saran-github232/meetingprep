@@ -8,11 +8,13 @@ import { importResumePdf } from "../pdf";
 import { shieldCapability } from "../stealth";
 import { friendlyErrorMessage } from "../ai/retry";
 import { LocalProvider } from "../ai/LocalProvider";
+import { testProviderKey, type ProviderTestResult } from "../ai/validate";
 
 const ENV_KEY_NAME: Record<AIProviderName, string> = {
   gemini: "GEMINI_API_KEY",
   openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
+  nvidia: "NVIDIA_API_KEY",
   local: "", // Ollama needs no key — it's a local server
 };
 
@@ -78,6 +80,17 @@ export function registerIpcHandlers(getProviders: () => AIProvider[]) {
   ipcMain.handle("ai:status", () => getProviders().length > 0);
   ipcMain.handle("ai:getActiveProvider", () => db.getActiveProvider());
   ipcMain.handle("ai:setActiveProvider", (_e, provider: AIProviderName) => db.setActiveProvider(provider));
+  // Per-provider "is there a usable key?" — unlike ai:status, which answers "is ANY provider
+  // configured" (used for app-level gating), Settings needs to know about the one being edited.
+  ipcMain.handle("ai:hasKey", (_e, provider: AIProviderName) => {
+    if (provider === "local") return LocalProvider.listModels().then((i) => i.running && i.models.length > 0);
+    return !!(db.getApiKey(provider) ?? process.env[ENV_KEY_NAME[provider]]?.trim());
+  });
+  // Real credential check against the provider's own API — the "Test connection" button.
+  ipcMain.handle("ai:testProvider", async (_e, provider: AIProviderName): Promise<ProviderTestResult> => {
+    const key = provider === "local" ? null : db.getApiKey(provider) ?? process.env[ENV_KEY_NAME[provider]] ?? null;
+    return testProviderKey(provider, key);
+  });
   ipcMain.handle("ai:setApiKey", (_e, provider: AIProviderName, key: string) => {
     db.setApiKey(provider, key);
     if (ENV_KEY_NAME[provider]) setEnvKey(ENV_KEY_NAME[provider], key);
