@@ -29,6 +29,105 @@ export type CoachLang = "en" | "te" | "hi" | "te-en";
 // question generation toward the language-data domain (transcription QA, alignment,
 // annotation, code-switching, …) using the supplied JD and resume for specificity.
 export type CoachRoleProfile = "general" | "telugu_transcription";
+
+// Session format: rehearsing for a human-led interview (panel, video call) or for an
+// AI-interviewer platform (recorded assessments, virtual interview agents, timed rounds).
+// Both are practice formats — the difference is the rehearsal experience, not the tooling.
+export type CoachInterviewFormat = "human" | "virtual_ai";
+
+export const COACH_FORMATS: { id: CoachInterviewFormat; label: string; note: string }[] = [
+  {
+    id: "human",
+    label: "Human Interview",
+    note: "Rehearse for a person-led interview — panels, video calls, on-sites.",
+  },
+  {
+    id: "virtual_ai",
+    label: "Virtual AI Interview",
+    note: "Rehearse for AI-interviewer platforms — timed responses, question-by-question, repeatable runs.",
+  },
+];
+
+// Default per-question time budget for virtual-AI rehearsals (HireVue-style platforms
+// typically give 1.5–3 minutes per recorded answer).
+export const VIRTUAL_AI_TIME_LIMITS = [60, 120, 180, 300];
+
+export function formatCoachDuration(startedAt: string, endedAt: string | null): string {
+  const start = new Date(startedAt.replace(" ", "T")).getTime();
+  const end = endedAt ? new Date(endedAt.replace(" ", "T")).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return "—";
+  const minutes = Math.max(1, Math.round((end - start) / 60000));
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+// ---------------------------------------------------------------------------
+// Test Mode fixtures — canned, deterministic AI responses so sessions can be run
+// end-to-end repeatedly (QA/development) without consuming provider quota. The
+// feedback fixture uses the exact section format the parsers expect.
+// ---------------------------------------------------------------------------
+
+export function isCoachTestModeEnabled(value: string | undefined): boolean {
+  return value === "1";
+}
+
+const TEST_QUESTIONS = [
+  "Walk me through your experience with the core tools this role requires.",
+  "Tell me about a time you had to meet a tight deadline with high accuracy requirements.",
+  "Describe a project you're most proud of and your specific contribution.",
+  "How do you handle ambiguous instructions or incomplete specifications?",
+  "Where do you see the biggest gaps in your background for this role, and how are you closing them?",
+];
+
+export function coachTestQuestion(index: number): string {
+  return TEST_QUESTIONS[index % TEST_QUESTIONS.length];
+}
+
+export function coachTestAnalysis(): InterviewCoachContext {
+  return {
+    candidateProfile:
+      "A detail-oriented candidate applying for this role with directly relevant project experience and a track record of careful, deadline-driven work.",
+    relevantExperience: "- Most recent role: owned end-to-end delivery of a quality-critical project\n- Recognized for accuracy under tight deadlines",
+    strengths: [
+      "Directly relevant project experience",
+      "Strong written and verbal communication",
+      "Consistent accuracy under deadlines",
+    ],
+    weakAreas: ["Limited exposure to the platform's specific internal tooling", "No formal certification in the domain"],
+    matchedSkills: ["Core tools listed in the job description", "Attention to detail", "Independent work style"],
+    missingSkills: ["Domain certification", "Team-lead experience"],
+    likelyTopics: ["Role-specific tooling", "Accuracy and quality standards", "Deadline management"],
+    likelyTechnical: ["How would you quality-check your own work before submitting it?"],
+    likelyBehavioral: ["Tell me about a time you caught an error everyone else missed."],
+    likelyProjectQuestions: ["Walk me through the project you're most proud of."],
+    likelyResumeQuestions: ["What did you learn from your most recent role transition?"],
+  };
+}
+
+export function coachTestFeedback(): string {
+  return `### Suggested Answer
+In my most recent role I owned a quality-critical deliverable end to end: I built a checklist from the style guide, verified my work against it before every submission, and flagged anything ambiguous to the reviewer early instead of guessing. That process kept my error rate low even on tight deadlines.
+
+### Why This Works
+It names a concrete process, ties it to the job's accuracy requirements, and shows judgment about when to escalate.
+
+### Key Points
+- Name the specific process you follow
+- Tie it to the role's accuracy requirements
+- Mention when you escalate rather than guess
+
+### Missing Points
+- A quantified result (error rate, turnaround time) would strengthen it
+
+### Resume Evidence
+- Owned end-to-end delivery of a quality-critical project
+
+### Job Match
+Directly matches the posting's emphasis on accuracy, consistency, and reliable turnaround.
+
+### Follow-up Questions
+- How would you handle two conflicting style-guide rules in the same task?`;
+}
 // Which provider Interview Coach prefers — "auto" keeps the app-wide fallback chain.
 export type CoachProviderPreference = "auto" | "gemini" | "nvidia";
 // Drives the point-cloud visualization (CoachOrb) and the state label under it.
@@ -47,6 +146,7 @@ export interface CoachSetup {
   notes: string;
   preferredLanguage?: CoachLangPref;
   roleProfile?: CoachRoleProfile;
+  interviewFormat?: CoachInterviewFormat;
 }
 
 // The one-time resume/JD analysis. Everything in it must be grounded in the supplied

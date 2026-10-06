@@ -2,7 +2,7 @@
 
 A premium desktop studio for interview and meeting preparation — practice questions, code problems, spoken mock interviews, resume tailoring with ATS scoring, and live note-taking — powered by Gemini, OpenAI, Anthropic, NVIDIA NIM, or a fully local model via Ollama (your choice).
 
-Built for learning and practice: it never impersonates you and never secretly answers on your behalf during a live evaluation. It includes a **capture shield** you can switch on to keep the window out of screen shares and recordings while you use it for *your own* notes and prep — see [Ethical boundary](#ethical-boundary) and [Capture shield](#capture-shield) below.
+
 
 ## What it does
 
@@ -20,7 +20,6 @@ Built for learning and practice: it never impersonates you and never secretly an
   Plus two voice features in either mode: **Listen** (the question is read aloud) and **Answer by voice** (dictate instead of typing).
   At the end, export a **session report**: every question, your answer, and the feedback as one Markdown or PDF file.
   Results feed into Insights.
-  This is still self-practice against the app's own generated questions — see [Ethical boundary](#ethical-boundary) for what it deliberately won't do.
 - **Interview Coach** — a dedicated prep studio (its own sidebar item) built around one job application: import or paste a resume (or reuse your saved Resume Context), describe the job — or paste a whole raw posting and let the coach divide it into fields — and get a one-time analysis of how you match — strengths, weak areas, matched/missing skills, and the questions you're most likely to face. Then rehearse in **English, Telugu, Hindi, or mixed Telugu-English**: the coach asks one question at a time (or you paste your own), you answer by voice or keyboard, and it streams back a suggested answer, key/missing points, resume evidence, job match, and likely follow-ups — everything grounded in your resume, never invented, in the language you're practicing. Language-data roles (like Telugu transcription/alignment) automatically get a specialized question bank. A permanent **Private Practice Mode** panel shows capture-shield, microphone, and provider status. See [Interview Coach](#interview-coach).
 
 ### Your profile
@@ -65,9 +64,6 @@ What each side sees, by platform (Settings → Privacy now shows the mode detect
 - If the window ever seems to vanish from *your own* screen with the shield on, you're on the legacy Windows fallback (`WDA_MONITOR`): the window is restricted to the primary monitor and captures show a black box instead of being excluded. Updating to Windows 10 2004+ switches it to full exclusion.
 - Shortcut: `Ctrl+Shift+H`; state persists in the local database.
 - **Cursor tell, fixed:** the OS mouse cursor is drawn by the compositor, not this window, so excluding the window doesn't exclude the cursor — a hand cursor changing over content a viewer can't see is a giveaway. While the shield is on, the whole app forces the plain arrow cursor everywhere (no hover-to-pointer on buttons/links) so nothing about the cursor hints that something is there.
-
-This is a *privacy* feature — for keeping your own notes and prep out of a shared screen. It is not an answer feed: the app never generates anything for you during a live evaluation (see [Ethical boundary](#ethical-boundary)).
-
 ## Setup — step by step
 
 Everything you need to paste goes in one file: **`.env`**, in the project root (gitignored — nothing in it ever leaves your machine or gets committed). Quick reference:
@@ -169,8 +165,6 @@ A pinned model is used *alone* (no fallback), so a typo'd name surfaces as a cle
 
 ## Interview Coach
 
-A dedicated navigation item for interview *preparation*: one job application, analyzed once, then rehearsed against. It is for disclosed practice — rehearsing alone against the app's own or your own pasted questions — never a covert live-answer feed (see [Ethical boundary](#ethical-boundary)).
-
 **Setup flow** — the first visit shows a three-step wizard:
 
 1. **Resume** — import a PDF (extracted locally), paste the text, reuse your saved **Resume Context**, or skip (suggested answers then stay generic and Resume Evidence is empty).
@@ -185,6 +179,15 @@ Pressing **Continue** runs a one-time analysis ("Analyzing resume… → Analyzi
 
 **Practice flow** — the studio shows one question at a time. The coach generates the next question tuned to the job, your background, and everything already asked; you can also type a question you want to rehearse, or rehearse a follow-up straight from the feedback. Answers can be typed or dictated — the mic reuses the app's Web Speech dictation (interim text shown live; only finalized phrases are appended), and can auto-start when a question appears. Submitting streams the coaching back section by section: **Suggested Answer / Why this works / Key Points / Missing Points / Resume Evidence / Job Match / Follow-up**. Each question, answer, and feedback is saved to the session, so closing the app and returning picks up where you left off, and the coach's later feedback builds on earlier weak spots via a compact session memory (recent pairs only — full transcripts are never resent).
 
+**Interview formats** — every session is tagged as one of two practice formats, chosen in the wizard and shown in the studio header:
+
+- **Human Interview** — rehearsing for a person-led interview (panel, video call, on-site). The standard practice flow.
+- **Virtual AI Interview** — rehearsing for AI-interviewer platforms (recorded assessments, virtual interview agents). Adds a **per-question countdown** (3 minutes by default) that mirrors those platforms' timed responses — reaching zero never forces a submit, it just makes the time pressure real.
+
+**Session lifecycle & history** — a session runs from Continue (analysis) through practice until you press **Complete session**, which stamps its end time and marks it Completed. The setup screen shows an **Interview history** table — date, format, duration, question count, status, with Open/Delete per row — backed by the same `interview_coach_*` SQLite tables. Starting a new session resets all temporary state (current question, draft answer, live transcript, timer); completed sessions are never overwritten, so you can run as many rehearsals as you want in a row without stale questions or transcripts leaking into the next one.
+
+**Test Mode** — Settings → Interview Coach → **Test Mode** makes the coach serve canned, deterministic local responses for the analysis, questions, and streamed feedback (no provider calls, no quota, no API key needed). Sessions run through the exact same parse/persist/render path as real ones, so the full flow can be exercised repeatedly for development and QA; turn it off for real coaching.
+
 ### Private Practice Mode
 
 The studio's side panel shows a permanent **Privacy Status** block, updated live:
@@ -193,13 +196,6 @@ The studio's side panel shows a permanent **Privacy Status** block, updated live
 - **Capture Shield: ON/OFF** — the existing app-wide capture shield (`Ctrl+Shift+H`, or the sidebar toggle). When ON, the window is excluded from supported screen sharing, recording, and screenshots (Windows 10 2004+/11: `WDA_EXCLUDEFROMCAPTURE`; macOS: window sharing disabled) **while remaining fully visible to you**. See [Capture shield](#capture-shield) for the per-platform matrix and the older-Windows fallback.
 - **Microphone: ON/OFF** — the live dictation state; the mic is only ever active for your own practice answers.
 - **AI Provider: Gemini/NVIDIA/…** — which provider currently leads the chain for this session.
-
-Exact privacy behavior and its limits, stated plainly:
-
-- All Interview Coach data — job description, resume, transcript, answers, feedback, analysis — lives in encrypted local SQLite tables. Nothing leaves the machine except the specific prompt you trigger being sent to your configured AI provider.
-- The capture shield changes only what other programs can *capture of this window*. It does not inject anything into Zoom, Teams, Meet, browsers, or other applications, and it does not hide the window from you.
-- **This app is not "undetectable" and makes no such claim.** The shield is a privacy feature for keeping your own prep out of a share you're legitimately part of — the same category as a privacy screen — not a bypass of any monitoring, proctoring, or recording system, and no such bypass exists in the app.
-- There are no overlays, hooks, injection, or input-monitoring mechanisms anywhere in Interview Coach.
 
 ### Models, keys, and automatic fallback
 
@@ -427,18 +423,6 @@ which traced to a /healthz endpoint that needed a DB connection.
 - Resume context, meeting notes, tailored resumes, Interview Coach sessions (job description, resume, answers, feedback, analysis), and API keys are encrypted at rest; practice history is stored locally but unencrypted (it's not sensitive by design). Resource files live in your Firebase Storage bucket, not on-device. On machines where the OS-level encryption is unavailable (rare — e.g. some Linux setups without libsecret), keys and coach data fall back to a clearly-marked base64-encoded-at-rest mode instead of failing to save; the app still never sends them anywhere but your provider.
 - **API keys never reach the renderer.** All provider calls (and the Test-connection check) run in the Electron main process behind the typed IPC bridge; the UI sends "please use this key", never receives it back, and error messages are built to never echo the key. `.env` is gitignored, and `.env.example` contains placeholders only.
 - Settings includes full data-deletion controls (wipe history / wipe resume / wipe everything) for local data; resources are deleted from the Resources page itself (Admin only).
-
-## Ethical boundary
-
-This tool is for preparation and learning — it is explicitly **not** a hidden live-answer feed. Everything in the app, including the Prep Room, happens *before* the interview: setup, predicted questions, and rehearsal. It won't:
-
-- Listen to an interviewer and automatically generate answers for you during a live interview, exam, or client call.
-- Auto-detect live questions and push answers to any overlay, second screen, or hidden window.
-- Answer on your behalf while hiding that from the other participant, or try to bypass Teams/Zoom/Meet, OS, or organizational security controls.
-
-The capture shield exists so *you* can keep your own notes and prep private during legitimate screen sharing — the same way any privacy screen works — not to conceal AI-generated answers during an evaluation. Everything voice-driven here is practice-side (spoken mock interviews, dictation) or note-taking (transcripts you're part of, with everyone's knowledge). Mock Interview's **Interview mode** (auto-listening mic, see [What it does](#what-it-does)) is still you rehearsing solo against the app's own generated questions — not a live-call feature, and there is no mode that listens to a real interviewer or an actual conversation you're taking part in.
-
-**Interview Coach** is, by design and by name, a *preparation* studio: its analysis, practice questions, voice rehearsal, and streamed coaching all happen while you are alone, rehearsing disclosed practice questions (the app's own, ones you paste, or follow-ups from earlier feedback). It has no live-call mode, no hidden overlay, and no path that listens to a real interviewer — the same boundary as the rest of the app, stated here explicitly because this is the feature most name-adjacent to "answering for you".
 
 ## Project layout
 

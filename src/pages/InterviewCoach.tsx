@@ -2,22 +2,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InterviewCoachContext, CoachFeedback, CoachSpeed } from "../../electron/ai/interviewCoach";
 import {
   appendTranscriptSegment,
+  COACH_FORMATS,
   COACH_INTERVIEW_TYPES,
   detectQuestionLanguage,
   detectRoleProfile,
+  formatCoachDuration,
   languageName,
   parseCoachFeedback,
   parsePartialCoachFeedback,
   setupWarnings,
   validateCoachSetup,
   ROLE_PROFILE_LABELS,
+  VIRTUAL_AI_TIME_LIMITS,
+  type CoachInterviewFormat,
   type CoachInterviewType,
   type CoachLangPref,
   type CoachResponseLength,
   type CoachSetup,
   type CoachVisualState,
 } from "../../electron/ai/interviewCoach";
-import type { CoachQaRow, CoachSessionBundle, CoachSessionRow } from "../../electron/db/db";
+import type { CoachQaRow, CoachSessionBundle, CoachSessionStats } from "../../electron/db/db";
 import { Section, BulletSection } from "../components/AnswerSections";
 import CoachOrb from "../components/CoachOrb";
 import { MicButton, InterimLine } from "../components/MicButton";
@@ -60,7 +64,11 @@ const EMPTY_SETUP: CoachSetup = {
   interviewType: "mixed",
   notes: "",
   preferredLanguage: "auto",
+  interviewFormat: "human",
 };
+
+// Default virtual-AI rehearsal time budget per question (3 minutes, HireVue-style).
+const DEFAULT_TIME_LIMIT = VIRTUAL_AI_TIME_LIMITS[2];
 
 const LANG_PREFS: { id: CoachLangPref; label: string }[] = [
   { id: "auto", label: "Auto" },
@@ -119,7 +127,7 @@ function SetupStage({
   onContinue: (resume: string | null) => void;
   busy: boolean;
   error: string | null;
-  pastSessions: CoachSessionRow[];
+  pastSessions: CoachSessionStats[];
   onDeleteSession: (id: number) => void;
   onResumeSession: (id: number) => void;
 }) {
@@ -399,17 +407,43 @@ function SetupStage({
             <h2 className="text-[15px] font-semibold">Interview configuration</h2>
             <p className="mt-1 text-[13px] text-muted">What kind of interview are you rehearsing for?</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {COACH_INTERVIEW_TYPES.map((t) => (
-              <Chip
-                key={t.id}
-                active={setup.interviewType === t.id}
-                onClick={() => setSetup({ interviewType: t.id })}
-              >
-                {t.label}
-              </Chip>
-            ))}
+
+          <div>
+            <label className="field-label">Interview format</label>
+            <div className="mt-1 grid grid-cols-2 gap-2.5">
+              {COACH_FORMATS.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setSetup({ interviewFormat: f.id })}
+                  className={`rounded-xl border p-3.5 text-left transition-all duration-200 ${
+                    (setup.interviewFormat ?? "human") === f.id
+                      ? "border-accent bg-accent/10"
+                      : "border-hairline bg-surface/50 hover:border-faint/50"
+                  }`}
+                >
+                  <div className="text-[13px] font-semibold">{f.label}</div>
+                  <p className="mt-0.5 text-[11.5px] leading-relaxed text-faint">{f.note}</p>
+                </button>
+              ))}
+            </div>
           </div>
+
+          <div>
+            <label className="field-label">Interview type</label>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {COACH_INTERVIEW_TYPES.map((t) => (
+                <Chip
+                  key={t.id}
+                  active={setup.interviewType === t.id}
+                  onClick={() => setSetup({ interviewType: t.id })}
+                >
+                  {t.label}
+                </Chip>
+              ))}
+            </div>
+          </div>
+
           <div>
             <label className="field-label">Response style</label>
             <div className="flex flex-wrap gap-2">
@@ -490,20 +524,45 @@ function SetupStage({
 
       {pastSessions.length > 0 && (
         <div className="card p-5">
-          <h2 className="text-[13px] font-semibold text-muted">Previous sessions</h2>
-          <div className="mt-2 divide-y divide-hairline">
-            {pastSessions.slice(0, 5).map((s) => (
-              <div key={s.id} className="flex items-center justify-between gap-3 py-2">
-                <span className="truncate text-[13px]">
-                  {[s.job_title || "Untitled role", s.company].filter(Boolean).join(" · ")}
-                  <span className="ml-2 text-[11px] text-faint">{s.updated_at.slice(0, 10)}</span>
-                </span>
-                <span className="flex shrink-0 gap-1.5">
-                  <button onClick={() => onResumeSession(s.id)} className="btn-ghost btn-xs">Resume</button>
-                  <button onClick={() => onDeleteSession(s.id)} className="btn-ghost btn-xs text-danger">Delete</button>
-                </span>
-              </div>
-            ))}
+          <h2 className="text-[13px] font-semibold text-muted">Interview history</h2>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-left text-[12.5px]">
+              <thead>
+                <tr className="border-b border-hairline text-[11px] uppercase tracking-[0.12em] text-faint">
+                  <th className="py-2 pr-3 font-semibold">Date</th>
+                  <th className="py-2 pr-3 font-semibold">Format</th>
+                  <th className="py-2 pr-3 font-semibold">Duration</th>
+                  <th className="py-2 pr-3 font-semibold">Questions</th>
+                  <th className="py-2 pr-3 font-semibold">Status</th>
+                  <th className="py-2 font-semibold"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-hairline">
+                {pastSessions.map((s) => (
+                  <tr key={s.id} className="hover:bg-raised/40">
+                    <td className="py-2 pr-3 text-muted">{s.updated_at.slice(0, 10)}</td>
+                    <td className="py-2 pr-3">
+                      {COACH_FORMATS.find((f) => f.id === s.interview_format)?.label ?? "Human Interview"}
+                    </td>
+                    <td className="py-2 pr-3 text-muted">{formatCoachDuration(s.created_at, s.completed_at)}</td>
+                    <td className="py-2 pr-3 text-muted">{s.question_count}</td>
+                    <td className="py-2 pr-3">
+                      {s.status === "completed" ? (
+                        <span className="badge-teal">Completed</span>
+                      ) : (
+                        <span className="badge border-hairline bg-surface/60 text-faint capitalize">{s.status}</span>
+                      )}
+                    </td>
+                    <td className="py-2">
+                      <span className="flex justify-end gap-1.5">
+                        <button onClick={() => onResumeSession(s.id)} className="btn-ghost btn-xs">Open</button>
+                        <button onClick={() => onDeleteSession(s.id)} className="btn-ghost btn-xs text-danger">Delete</button>
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -597,6 +656,7 @@ function StudioStage({
   setMetrics,
   onNewSession,
   onReanalyze,
+  onCompleteSession,
 }: {
   bundle: CoachSessionBundle;
   speed: CoachSpeed;
@@ -607,8 +667,10 @@ function StudioStage({
   setMetrics: (m: { ttftMs: number; totalMs: number }) => void;
   onNewSession: () => void;
   onReanalyze: () => void;
+  onCompleteSession: () => void;
 }) {
   const { session, context } = bundle;
+  const isVirtualAI = session.interview_format === "virtual_ai";
   const answeredIds = useMemo(
     () => new Set(bundle.qa.filter((qa) => qa.answer !== null).map((qa) => qa.questionId)),
     [bundle.qa]
@@ -710,6 +772,25 @@ function StudioStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recognitionLang]);
 
+  // Virtual AI format: per-question countdown, like the timed responses on AI-interviewer
+  // platforms. Reaching zero never forces a submit — it just makes the time pressure real.
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isVirtualAI || !current || feedback) {
+      setSecondsLeft(null);
+      return;
+    }
+    setSecondsLeft(DEFAULT_TIME_LIMIT);
+    const timer = window.setInterval(() => {
+      setSecondsLeft((s) => (s === null ? null : Math.max(0, s - 1)));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isVirtualAI, current?.id, feedback]);
+  const timerLabel =
+    secondsLeft === null
+      ? null
+      : `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, "0")}`;
+
   useEffect(
     () => () => {
       stopStream.current?.();
@@ -809,6 +890,23 @@ function StudioStage({
             {session.experience_level ? ` · ${session.experience_level}` : ""} · {answeredCount} answered
           </p>
         </div>
+        <span className="badge border-hairline bg-surface/60 text-faint">
+          {COACH_FORMATS.find((f) => f.id === session.interview_format)?.label ?? "Human Interview"}
+        </span>
+        {timerLabel !== null && (
+          <span
+            className={`badge ${
+              secondsLeft === 0
+                ? "border-danger/30 bg-danger/10 text-danger"
+                : secondsLeft !== null && secondsLeft <= 30
+                  ? "border-gold/30 bg-gold/10 text-gold"
+                  : "badge-teal"
+            }`}
+            title="Time budget for this answer (virtual AI interviews use timed responses)"
+          >
+            ⏱ {secondsLeft === 0 ? "Time's up" : timerLabel}
+          </span>
+        )}
         <select
           className="input w-auto py-1.5 text-[12.5px]"
           value={answerLang}
@@ -827,6 +925,9 @@ function StudioStage({
           </span>
         )}
         <button onClick={onReanalyze} disabled={busy || streaming} className="btn-ghost btn-xs">Re-analyze</button>
+        <button onClick={onCompleteSession} disabled={busy || streaming} className="btn-secondary btn-xs">
+          Complete session
+        </button>
         <button onClick={onNewSession} disabled={busy || streaming} className="btn-secondary btn-xs">
           New session
         </button>
@@ -1120,7 +1221,7 @@ export default function InterviewCoach() {
   const [setup, setSetupState] = useState<CoachSetup>(EMPTY_SETUP);
   const [savedResume, setSavedResume] = useState<string | null>(null);
   const [responseStyle, setResponseStyle] = useState<CoachResponseLength>("medium");
-  const [pastSessions, setPastSessions] = useState<CoachSessionRow[]>([]);
+  const [pastSessions, setPastSessions] = useState<CoachSessionStats[]>([]);
   const [bundle, setBundle] = useState<CoachSessionBundle | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1293,6 +1394,16 @@ export default function InterviewCoach() {
     }
   }
 
+  // Explicit end-of-interview: marks the session completed (history keeps it with its
+  // duration and question count) and returns to the setup screen for the next run.
+  async function completeSession() {
+    if (!bundle) return;
+    await window.api.coach.completeSession(bundle.session.id);
+    setBundle(null);
+    setStage("setup");
+    setPastSessions(await window.api.coach.listSessions());
+  }
+
   async function resumeSession(id: number) {
     setError(null);
     try {
@@ -1357,6 +1468,7 @@ export default function InterviewCoach() {
           setMetrics={setMetrics}
           onNewSession={newSession}
           onReanalyze={reanalyze}
+          onCompleteSession={completeSession}
         />
       )}
     </div>

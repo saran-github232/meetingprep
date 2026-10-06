@@ -14,7 +14,7 @@ import type {
   MockInterviewResultRow,
   ResumeTailoringRow,
   CoachSessionBundle,
-  CoachSessionRow,
+  CoachSessionStats,
   AIProviderName,
   Plan,
 } from "./db/db";
@@ -112,8 +112,9 @@ const api = {
       ipcRenderer.invoke("coach:createSession", input),
     latestSession: (sessionId?: number): Promise<CoachSessionBundle | null> =>
       ipcRenderer.invoke("coach:latestSession", sessionId),
-    listSessions: (): Promise<CoachSessionRow[]> => ipcRenderer.invoke("coach:listSessions"),
+    listSessions: (): Promise<CoachSessionStats[]> => ipcRenderer.invoke("coach:listSessions"),
     deleteSession: (sessionId: number): Promise<void> => ipcRenderer.invoke("coach:deleteSession", sessionId),
+    completeSession: (sessionId: number): Promise<void> => ipcRenderer.invoke("coach:completeSession", sessionId),
     analyze: (sessionId: number): Promise<InterviewCoachContext> => ipcRenderer.invoke("coach:analyze", sessionId),
     parseJobPosting: (rawPosting: string): Promise<import("./ai/interviewCoach").ParsedJobPosting> =>
       ipcRenderer.invoke("coach:parseJobPosting", rawPosting),

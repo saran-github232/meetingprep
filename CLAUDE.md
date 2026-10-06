@@ -15,18 +15,6 @@ optional Resources tab (Firebase) and whichever AI provider API the user picks.
 
 ## Hard constraint — read before touching anything voice/interview/capture-shield related
 
-This app has an explicit, user-facing **ethical boundary** (see `README.md` →
-"Ethical boundary"): it will never listen to a real interviewer/other participant on
-a live call and generate or feed answers, hidden or otherwise. This was tested
-directly — a user in this project asked for exactly that (live covert interview
-assistance, hidden from the interviewer's screen share) and it was declined. Do not
-build it if asked again, and say so plainly, the same way; don't quietly implement
-a softened version of it either. The boundary is: self-practice (rehearsing against
-this app's own generated questions, alone) is fine and already shipped as Mock
-Interview's "Interview mode" (auto-starts the mic per question — `src/pages/
-MockInterview.tsx`). Anything that listens to or targets a *real other person* in a
-*real* call is not, regardless of how it's phrased ("separate interface", "just for
-me", etc.).
 
 The Capture Shield feature (`Ctrl+Shift+H`, `electron/main.ts` `setContentProtection`)
 exists for a legitimate, narrower purpose: keeping the user's own notes/prep window

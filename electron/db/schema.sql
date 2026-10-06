@@ -78,7 +78,9 @@ CREATE TABLE IF NOT EXISTS interview_coach_sessions (
   experience_level TEXT NOT NULL DEFAULT '',
   preferred_language TEXT NOT NULL DEFAULT 'auto',
   role_profile TEXT NOT NULL DEFAULT 'general',
+  interview_format TEXT NOT NULL DEFAULT 'human',
   status TEXT NOT NULL DEFAULT 'setup',
+  completed_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

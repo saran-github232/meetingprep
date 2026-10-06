@@ -35,6 +35,7 @@ export default function Settings() {
   const [coachVoice, setCoachVoice] = useState(false);
   const [coachAutoListen, setCoachAutoListen] = useState(true);
   const [coachShowLatency, setCoachShowLatency] = useState(false);
+  const [coachTestMode, setCoachTestMode] = useState(false);
   const { stealth, toggleStealth, capability } = useStealth();
 
   function refreshStatus() {
@@ -56,6 +57,7 @@ export default function Settings() {
     window.api.settings.get("coach_voice").then((v) => setCoachVoice(v === "1"));
     window.api.settings.get("coach_autolisten").then((v) => setCoachAutoListen(v !== "0"));
     window.api.settings.get("coach_show_latency").then((v) => setCoachShowLatency(v === "1"));
+    window.api.settings.get("coach_test_mode").then((v) => setCoachTestMode(v === "1"));
     refreshLocal();
   }, []);
 
@@ -507,6 +509,26 @@ export default function Settings() {
                   className={`switch ${coachShowLatency ? "switch-on" : ""}`}
                 />
               </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[13px] font-medium">Test Mode</span>
+                <button
+                  role="switch"
+                  aria-checked={coachTestMode}
+                  aria-label="Interview Coach test mode"
+                  onClick={async () => {
+                    setCoachTestMode(!coachTestMode);
+                    await window.api.settings.set("coach_test_mode", coachTestMode ? "0" : "1");
+                  }}
+                  className={`switch ${coachTestMode ? "switch-on" : ""}`}
+                />
+              </div>
+              {coachTestMode && (
+                <p className="warn-box text-[12px]">
+                  Test Mode is on: the coach serves canned local responses (no provider calls, no
+                  quota) so sessions can be run end-to-end repeatedly for QA. Turn it off for real
+                  coaching.
+                </p>
+              )}
             </div>
           </div>
           <p className="text-[11.5px] leading-relaxed text-faint">

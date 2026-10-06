@@ -34,6 +34,10 @@ function migrate() {
     db.exec(`ALTER TABLE interview_coach_sessions ADD COLUMN preferred_language TEXT NOT NULL DEFAULT 'auto'`);
   if (!coachCols.has("role_profile"))
     db.exec(`ALTER TABLE interview_coach_sessions ADD COLUMN role_profile TEXT NOT NULL DEFAULT 'general'`);
+  // Interview Coach v3: session format (human / virtual_ai) + explicit completion time.
+  if (!coachCols.has("interview_format"))
+    db.exec(`ALTER TABLE interview_coach_sessions ADD COLUMN interview_format TEXT NOT NULL DEFAULT 'human'`);
+  if (!coachCols.has("completed_at")) db.exec(`ALTER TABLE interview_coach_sessions ADD COLUMN completed_at TEXT`);
 }
 
 export interface QAHistoryRow {
@@ -394,9 +398,15 @@ export interface CoachSessionRow {
   experience_level: string;
   preferred_language: string;
   role_profile: string;
+  interview_format: string;
   status: string;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CoachSessionStats extends CoachSessionRow {
+  question_count: number;
 }
 
 export interface CoachContextRow {
@@ -441,6 +451,7 @@ export function createCoachSession(input: {
   experienceLevel: string;
   preferredLanguage: string;
   roleProfile: string;
+  interviewFormat: string;
   jobDescription: string;
   resume: string | null;
   requiredSkills: string;
@@ -451,8 +462,8 @@ export function createCoachSession(input: {
 }): number {
   const result = db
     .prepare(
-      `INSERT INTO interview_coach_sessions (job_title, company, interview_type, experience_level, preferred_language, role_profile, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'setup')`
+      `INSERT INTO interview_coach_sessions (job_title, company, interview_type, experience_level, preferred_language, role_profile, interview_format, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'setup')`
     )
     .run(
       input.jobTitle,
@@ -460,7 +471,8 @@ export function createCoachSession(input: {
       input.interviewType,
       input.experienceLevel,
       input.preferredLanguage,
-      input.roleProfile
+      input.roleProfile,
+      input.interviewFormat
     );
   const sessionId = Number(result.lastInsertRowid);
   db.prepare(
@@ -489,7 +501,9 @@ function mapCoachSessionRow(row: Record<string, unknown>): CoachSessionRow {
     experience_level: String(row.experience_level ?? ""),
     preferred_language: String(row.preferred_language ?? "auto"),
     role_profile: String(row.role_profile ?? "general"),
+    interview_format: String(row.interview_format ?? "human"),
     status: String(row.status ?? "setup"),
+    completed_at: row.completed_at ? String(row.completed_at) : null,
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
   };
@@ -658,4 +672,29 @@ export function getCoachSessionBundle(sessionId: number): CoachSessionBundle | n
     context: getCoachContext(sessionId),
     qa: getCoachQa(sessionId),
   };
+}
+
+// History rows: every session with its question count, newest first. Powers the
+// Interview History table (date, format, duration, questions, status).
+export function listCoachSessionStats(): CoachSessionStats[] {
+  const rows = db
+    .prepare(
+      `SELECT s.*, COUNT(q.id) AS question_count
+       FROM interview_coach_sessions s
+       LEFT JOIN interview_coach_questions q ON q.session_id = s.id
+       GROUP BY s.id
+       ORDER BY s.updated_at DESC, s.id DESC`
+    )
+    .all() as unknown as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    ...mapCoachSessionRow(row),
+    question_count: Number(row.question_count ?? 0),
+  }));
+}
+
+// Marks a session completed (explicit end-of-interview action) and stamps the time.
+export function completeCoachSession(sessionId: number): void {
+  db.prepare(
+    `UPDATE interview_coach_sessions SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+  ).run(sessionId);
 }

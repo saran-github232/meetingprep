@@ -7,7 +7,11 @@ import {
   coachFeedbackPrompt,
   coachMaxTokens,
   coachQuestionPrompt,
+  coachTestAnalysis,
+  coachTestFeedback,
+  coachTestQuestion,
   detectQuestionLanguage,
+  isCoachTestModeEnabled,
   isUsefulAnalysis,
   jobPostingParsePrompt,
   parseCoachFeedback,
@@ -15,6 +19,7 @@ import {
   parseInterviewCoachContext,
   parseJobPosting,
   detectRoleProfile,
+  type CoachInterviewFormat,
   type CoachLang,
   type CoachLangPref,
   type CoachProviderPreference,
@@ -48,6 +53,12 @@ export function registerIpcHandlers(getProviders: (prefer?: CoachProviderPrefere
   // rate-limited key still degrades to the next configured provider instead of failing.
   function providersForCoach(): AIProvider[] {
     return getProviders(coachPrefs().prefer);
+  }
+
+  // Test Mode (Settings → Interview Coach): serve canned, deterministic responses for
+  // repeated QA runs without consuming provider quota or needing any key configured.
+  function coachTestMode(): boolean {
+    return isCoachTestModeEnabled(db.getSetting("coach_test_mode"));
   }
   ipcMain.handle("qa:list", (_e, search?: string) => db.listQAHistory(search));
   ipcMain.handle("qa:insert", (_e, row) => db.insertQAHistory(row));
@@ -152,7 +163,7 @@ export function registerIpcHandlers(getProviders: (prefer?: CoachProviderPrefere
   });
   ipcMain.handle("ai:localModels", () => LocalProvider.listModels());
 
-  registerCoachHandlers({ coachPrefs, providersForCoach });
+  registerCoachHandlers({ coachPrefs, providersForCoach, coachTestMode });
 
   ipcMain.handle("ai:classify", async (_e, question: string) => {
     const providers = getProviders();
@@ -409,8 +420,9 @@ function requireProviders(providers: AIProvider[]): void {
 function registerCoachHandlers(deps: {
   coachPrefs: () => { prefer: CoachProviderPreference; speed: CoachSpeed; length: CoachResponseLength };
   providersForCoach: () => AIProvider[];
+  coachTestMode: () => boolean;
 }) {
-  const { coachPrefs, providersForCoach } = deps;
+  const { coachPrefs, providersForCoach, coachTestMode } = deps;
   ipcMain.handle(
     "coach:createSession",
     (
@@ -427,6 +439,7 @@ function registerCoachHandlers(deps: {
         s.roleProfile === "telugu_transcription" || s.roleProfile === "general"
           ? s.roleProfile
           : detectRoleProfile(s.jobDescription);
+      const format: CoachInterviewFormat = s.interviewFormat === "virtual_ai" ? "virtual_ai" : "human";
       return db.createCoachSession({
         jobTitle: s.jobTitle.trim(),
         company: s.company.trim(),
@@ -434,6 +447,7 @@ function registerCoachHandlers(deps: {
         experienceLevel: s.experienceLevel,
         preferredLanguage: s.preferredLanguage === "en" || s.preferredLanguage === "te" || s.preferredLanguage === "hi" ? s.preferredLanguage : "auto",
         roleProfile: profile,
+        interviewFormat: format,
         jobDescription: s.jobDescription.trim(),
         resume: input.resume?.trim() ? input.resume : null,
         requiredSkills: s.requiredSkills.trim(),
@@ -450,15 +464,26 @@ ipcMain.handle("coach:latestSession", (_e, sessionId?: number) => {
   return session ? db.getCoachSessionBundle(session.id) : null;
 });
 
-ipcMain.handle("coach:listSessions", () => db.listCoachSessions());
+ipcMain.handle("coach:listSessions", () => db.listCoachSessionStats());
 
 ipcMain.handle("coach:deleteSession", (_e, sessionId: number) => db.deleteCoachSession(sessionId));
 
+// Explicit end-of-interview: marks the session completed and stamps the time so the
+// history table can show real durations. Temporary UI state resets on the renderer side
+// when the next session starts; historical sessions are never overwritten.
+ipcMain.handle("coach:completeSession", (_e, sessionId: number) => db.completeCoachSession(sessionId));
+
 // The one-time resume/JD analysis (Phase 3) — cached in the session's context row, so
-// reopening a session or asking the next question never re-runs it.
+// reopening a session or asking the next question never re-runs it. Test Mode serves a
+// canned analysis through the same parse/persist path so everything downstream is identical.
 ipcMain.handle("coach:analyze", async (_e, sessionId: number): Promise<InterviewCoachContext> => {
   const parts = coachSetupFor(sessionId);
   if (!parts) throw new Error("This Interview Coach session no longer exists.");
+  if (coachTestMode()) {
+    db.saveCoachContext(sessionId, { analysis: coachTestAnalysis() });
+    db.updateCoachSessionStatus(sessionId, "ready");
+    return coachTestAnalysis();
+  }
   const prompt = coachAnalysisPrompt(parts.setup, parts.context.resume);
   const providers = providersForCoach();
   requireProviders(providers);
@@ -500,6 +525,11 @@ ipcMain.handle(
     const prefs = coachPrefs();
     const asked = db.listCoachQuestions(sessionId).map((q) => q.question);
     const lang = coachLangOverride(langOverride) ?? coachQuestionLang(parts.setup);
+    if (coachTestMode()) {
+      const question = coachTestQuestion(asked.length);
+      const id = db.addCoachQuestion(sessionId, question, "ai");
+      return { id, question };
+    }
     const prompt = coachQuestionPrompt({
       setup: parts.setup,
       ctx: parts.context.analysis,
@@ -570,6 +600,23 @@ ipcMain.on(
     const parts = coachSetupFor(sessionId);
     if (!parts) {
       event.sender.send(`ai:error:${requestId}`, "This Interview Coach session no longer exists.");
+      return;
+    }
+    // Test Mode: stream the canned feedback in word chunks with tiny delays so the
+    // renderer's progressive section rendering is genuinely exercised, then persist
+    // through the same path as a real stream. No provider call, no quota.
+    if (coachTestMode()) {
+      const canned = coachTestFeedback();
+      const chunks = canned.match(/\S+\s*/g) ?? [canned];
+      const started = Date.now();
+      for (let i = 0; i < chunks.length; i++) {
+        event.sender.send(`ai:chunk:${requestId}`, chunks[i]);
+        if (i % 12 === 0) await new Promise((r) => setTimeout(r, 30));
+      }
+      event.sender.send(`ai:metrics:${requestId}`, { ttftMs: Date.now() - started, totalMs: Date.now() - started });
+      event.sender.send(`ai:done:${requestId}`);
+      const answerId = db.addCoachAnswer(sessionId, questionId, answer);
+      db.saveCoachFeedback(sessionId, answerId, parseCoachFeedback(canned));
       return;
     }
     const lang = coachFeedbackLang(parts.setup, question, answer, coachLangOverride(langOverride));
