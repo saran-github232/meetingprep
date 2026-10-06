@@ -38,6 +38,19 @@ function migrate() {
   if (!coachCols.has("interview_format"))
     db.exec(`ALTER TABLE interview_coach_sessions ADD COLUMN interview_format TEXT NOT NULL DEFAULT 'human'`);
   if (!coachCols.has("completed_at")) db.exec(`ALTER TABLE interview_coach_sessions ADD COLUMN completed_at TEXT`);
+
+  // Practice sessions context columns (Resume + Job Description + Analysis)
+  const practiceCols = new Set(
+    (db.prepare(`PRAGMA table_info(practice_sessions)`).all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  if (!practiceCols.has("resume_text")) db.exec(`ALTER TABLE practice_sessions ADD COLUMN resume_text TEXT NOT NULL DEFAULT ''`);
+  if (!practiceCols.has("job_title")) db.exec(`ALTER TABLE practice_sessions ADD COLUMN job_title TEXT NOT NULL DEFAULT ''`);
+  if (!practiceCols.has("company")) db.exec(`ALTER TABLE practice_sessions ADD COLUMN company TEXT NOT NULL DEFAULT ''`);
+  if (!practiceCols.has("job_description")) db.exec(`ALTER TABLE practice_sessions ADD COLUMN job_description TEXT NOT NULL DEFAULT ''`);
+  if (!practiceCols.has("required_skills")) db.exec(`ALTER TABLE practice_sessions ADD COLUMN required_skills TEXT NOT NULL DEFAULT ''`);
+  if (!practiceCols.has("tech_stack")) db.exec(`ALTER TABLE practice_sessions ADD COLUMN tech_stack TEXT NOT NULL DEFAULT ''`);
+  if (!practiceCols.has("experience_level")) db.exec(`ALTER TABLE practice_sessions ADD COLUMN experience_level TEXT NOT NULL DEFAULT ''`);
+  if (!practiceCols.has("context_analysis_json")) db.exec(`ALTER TABLE practice_sessions ADD COLUMN context_analysis_json TEXT NOT NULL DEFAULT ''`);
 }
 
 export interface QAHistoryRow {
@@ -724,6 +737,14 @@ export interface PracticeSessionRow {
   depth: string;
   draft_text: string;
   turns_json: string;
+  resume_text?: string;
+  job_title?: string;
+  company?: string;
+  job_description?: string;
+  required_skills?: string;
+  tech_stack?: string;
+  experience_level?: string;
+  context_analysis_json?: string;
   created_at: string;
   updated_at: string;
 }
@@ -747,17 +768,52 @@ export function savePracticeSession(session: {
   depth: string;
   draft_text: string;
   turns_json: string;
+  resume_text?: string;
+  job_title?: string;
+  company?: string;
+  job_description?: string;
+  required_skills?: string;
+  tech_stack?: string;
+  experience_level?: string;
+  context_analysis_json?: string;
 }): void {
   db.prepare(
-    `INSERT INTO practice_sessions (id, title, depth, draft_text, turns_json, updated_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))
+    `INSERT INTO practice_sessions (
+       id, title, depth, draft_text, turns_json,
+       resume_text, job_title, company, job_description,
+       required_skills, tech_stack, experience_level, context_analysis_json,
+       updated_at
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title,
        depth = excluded.depth,
        draft_text = excluded.draft_text,
        turns_json = excluded.turns_json,
+       resume_text = excluded.resume_text,
+       job_title = excluded.job_title,
+       company = excluded.company,
+       job_description = excluded.job_description,
+       required_skills = excluded.required_skills,
+       tech_stack = excluded.tech_stack,
+       experience_level = excluded.experience_level,
+       context_analysis_json = excluded.context_analysis_json,
        updated_at = datetime('now')`
-  ).run(session.id, session.title, session.depth, session.draft_text, session.turns_json);
+  ).run(
+    session.id,
+    session.title,
+    session.depth,
+    session.draft_text,
+    session.turns_json,
+    session.resume_text ?? "",
+    session.job_title ?? "",
+    session.company ?? "",
+    session.job_description ?? "",
+    session.required_skills ?? "",
+    session.tech_stack ?? "",
+    session.experience_level ?? "",
+    session.context_analysis_json ?? ""
+  );
 }
 
 export function deletePracticeSession(id: string): void {

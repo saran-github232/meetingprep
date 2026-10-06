@@ -12,6 +12,14 @@ test("Practice session schema and persistence operations", async (t) => {
       depth TEXT NOT NULL DEFAULT 'moderate',
       draft_text TEXT NOT NULL DEFAULT '',
       turns_json TEXT NOT NULL DEFAULT '[]',
+      resume_text TEXT NOT NULL DEFAULT '',
+      job_title TEXT NOT NULL DEFAULT '',
+      company TEXT NOT NULL DEFAULT '',
+      job_description TEXT NOT NULL DEFAULT '',
+      required_skills TEXT NOT NULL DEFAULT '',
+      tech_stack TEXT NOT NULL DEFAULT '',
+      experience_level TEXT NOT NULL DEFAULT '',
+      context_analysis_json TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -21,17 +29,58 @@ test("Practice session schema and persistence operations", async (t) => {
     );
   `);
 
-  function saveSession(session: { id: string; title: string; depth: string; draft_text: string; turns_json: string }) {
+  function saveSession(session: {
+    id: string;
+    title: string;
+    depth: string;
+    draft_text: string;
+    turns_json: string;
+    resume_text?: string;
+    job_title?: string;
+    company?: string;
+    job_description?: string;
+    required_skills?: string;
+    tech_stack?: string;
+    experience_level?: string;
+    context_analysis_json?: string;
+  }) {
     db.prepare(`
-      INSERT INTO practice_sessions (id, title, depth, draft_text, turns_json, updated_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO practice_sessions (
+        id, title, depth, draft_text, turns_json,
+        resume_text, job_title, company, job_description,
+        required_skills, tech_stack, experience_level, context_analysis_json,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         depth = excluded.depth,
         draft_text = excluded.draft_text,
         turns_json = excluded.turns_json,
+        resume_text = excluded.resume_text,
+        job_title = excluded.job_title,
+        company = excluded.company,
+        job_description = excluded.job_description,
+        required_skills = excluded.required_skills,
+        tech_stack = excluded.tech_stack,
+        experience_level = excluded.experience_level,
+        context_analysis_json = excluded.context_analysis_json,
         updated_at = datetime('now')
-    `).run(session.id, session.title, session.depth, session.draft_text, session.turns_json);
+    `).run(
+      session.id,
+      session.title,
+      session.depth,
+      session.draft_text,
+      session.turns_json,
+      session.resume_text ?? "",
+      session.job_title ?? "",
+      session.company ?? "",
+      session.job_description ?? "",
+      session.required_skills ?? "",
+      session.tech_stack ?? "",
+      session.experience_level ?? "",
+      session.context_analysis_json ?? ""
+    );
   }
 
   function listSessions() {
@@ -171,6 +220,66 @@ test("Practice session schema and persistence operations", async (t) => {
 
     const loaded = getSession("practice_corrupt");
     const parsed = JSON.parse(loaded.turns_json);
+    assert.equal(parsed.length, 1);
     assert.equal(parsed[0].images[0].data, "");
+  });
+
+  await t.test("14 & 15. Persist accumulated Interview Coach context and verify isolation", () => {
+    const analysis = {
+      candidateProfile: "Data Scientist with 3+ years experience in Python, SQL, and ML.",
+      strengths: ["Production Python", "Distributed SQL", "Model evaluation"],
+      weakAreas: ["Limited Go exposure"],
+      matchedSkills: ["Python", "SQL", "Machine Learning"],
+      missingSkills: ["Kubernetes"],
+    };
+
+    saveSession({
+      id: "practice_context_A",
+      title: "Data Science Interview",
+      depth: "expert-level",
+      draft_text: "Unsent question about cross-validation",
+      turns_json: "[]",
+      resume_text: "Saran's Data Science Resume with Python, PyTorch, SQL",
+      job_title: "Senior Data Scientist",
+      company: "AI Labs",
+      job_description: "We are seeking a Senior Data Scientist skilled in Python and SQL.",
+      required_skills: "Python, SQL, ML",
+      tech_stack: "Python, PyTorch, PostgreSQL, AWS",
+      experience_level: "Senior (5-8 years)",
+      context_analysis_json: JSON.stringify(analysis),
+    });
+
+    saveSession({
+      id: "practice_context_B",
+      title: "Frontend Interview",
+      depth: "short",
+      draft_text: "",
+      turns_json: "[]",
+      resume_text: "Frontend resume with React and TypeScript",
+      job_title: "Frontend Engineer",
+      company: "Web Corp",
+      job_description: "Seeking React & TS dev",
+      required_skills: "React, TS",
+      tech_stack: "React, Vite, Tailwind",
+      experience_level: "Mid-level",
+      context_analysis_json: "",
+    });
+
+    const sessionA = getSession("practice_context_A");
+    assert.equal(sessionA.job_title, "Senior Data Scientist");
+    assert.equal(sessionA.company, "AI Labs");
+    assert.equal(sessionA.resume_text, "Saran's Data Science Resume with Python, PyTorch, SQL");
+    const parsedA = JSON.parse(sessionA.context_analysis_json);
+    assert.equal(parsedA.strengths[0], "Production Python");
+
+    const sessionB = getSession("practice_context_B");
+    assert.equal(sessionB.job_title, "Frontend Engineer");
+    assert.equal(sessionB.company, "Web Corp");
+    assert.equal(sessionB.resume_text, "Frontend resume with React and TypeScript");
+    assert.equal(sessionB.context_analysis_json, "");
+
+    // Verify complete context isolation: Session A data did not leak into Session B
+    assert.notEqual(sessionA.resume_text, sessionB.resume_text);
+    assert.notEqual(sessionA.job_title, sessionB.job_title);
   });
 });

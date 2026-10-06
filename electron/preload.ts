@@ -293,12 +293,28 @@ const api = {
   practice: {
     listSessions: (): Promise<PracticeSessionRow[]> => ipcRenderer.invoke("practice:listSessions"),
     getSession: (id: string): Promise<PracticeSessionRow | null> => ipcRenderer.invoke("practice:getSession", id),
-    saveSession: (session: { id: string; title: string; depth: string; draft_text: string; turns_json: string }): Promise<void> =>
+    saveSession: (session: {
+      id: string;
+      title: string;
+      depth: string;
+      draft_text: string;
+      turns_json: string;
+      resume_text?: string;
+      job_title?: string;
+      company?: string;
+      job_description?: string;
+      required_skills?: string;
+      tech_stack?: string;
+      experience_level?: string;
+      context_analysis_json?: string;
+    }): Promise<void> =>
       ipcRenderer.invoke("practice:saveSession", session),
     deleteSession: (id: string): Promise<void> => ipcRenderer.invoke("practice:deleteSession", id),
     renameSession: (id: string, title: string): Promise<void> => ipcRenderer.invoke("practice:renameSession", id, title),
     getActiveSessionId: (): Promise<string | null> => ipcRenderer.invoke("practice:getActiveSessionId"),
     setActiveSessionId: (id: string): Promise<void> => ipcRenderer.invoke("practice:setActiveSessionId", id),
+    analyze: (input: { resumeText: string | null; setup: CoachSetup }): Promise<InterviewCoachContext> =>
+      ipcRenderer.invoke("practice:analyze", input),
   },
 };
 

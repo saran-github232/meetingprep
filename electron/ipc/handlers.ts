@@ -120,13 +120,43 @@ export function registerIpcHandlers(getProviders: (prefer?: CoachProviderPrefere
 
   ipcMain.handle("practice:listSessions", () => db.listPracticeSessions());
   ipcMain.handle("practice:getSession", (_e, id: string) => db.getPracticeSession(id));
-  ipcMain.handle("practice:saveSession", (_e, session: { id: string; title: string; depth: string; draft_text: string; turns_json: string }) =>
+  ipcMain.handle("practice:saveSession", (_e, session: Parameters<typeof db.savePracticeSession>[0]) =>
     db.savePracticeSession(session)
   );
   ipcMain.handle("practice:deleteSession", (_e, id: string) => db.deletePracticeSession(id));
   ipcMain.handle("practice:renameSession", (_e, id: string, title: string) => db.renamePracticeSession(id, title));
   ipcMain.handle("practice:getActiveSessionId", () => db.getActivePracticeSessionId());
   ipcMain.handle("practice:setActiveSessionId", (_e, id: string) => db.setActivePracticeSessionId(id));
+  ipcMain.handle(
+    "practice:analyze",
+    async (
+      _e,
+      input: {
+        resumeText: string | null;
+        setup: CoachSetup;
+      }
+    ): Promise<InterviewCoachContext> => {
+      const { resumeText, setup } = input;
+      if (coachTestMode()) {
+        return coachTestAnalysis();
+      }
+      const prompt = coachAnalysisPrompt(setup, resumeText);
+      const providers = providersForCoach();
+      requireProviders(providers);
+      let lastErr: unknown;
+      for (const provider of providers) {
+        try {
+          const raw = await provider.completeCoach(prompt, "quality", 1600);
+          const analysis = parseInterviewCoachContext(raw);
+          if (!isUsefulAnalysis(analysis)) throw new Error("The analysis came back empty — try again.");
+          return analysis;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      throw new Error(friendlyErrorMessage(lastErr));
+    }
+  );
 
   ipcMain.handle("ai:status", () => getProviders().length > 0);
   ipcMain.handle("ai:getActiveProvider", () => db.getActiveProvider());

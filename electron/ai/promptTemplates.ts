@@ -310,18 +310,82 @@ const PRACTICE_CONCEPT_STRUCTURE = `### Direct Answer
 const clip = (str: string, maxLen: number): string =>
   str.length > maxLen ? str.slice(0, maxLen) + "..." : str;
 
-export function practiceTutorPrompt(history: PracticeTurn[], depth: AnswerDepth): string {
+export interface PracticeContextInfo {
+  resumeText?: string;
+  jobTitle?: string;
+  company?: string;
+  jobDescription?: string;
+  requiredSkills?: string;
+  techStack?: string;
+  experienceLevel?: string;
+  analysis?: {
+    candidateProfile?: string;
+    relevantExperience?: string;
+    strengths?: string[];
+    weakAreas?: string[];
+    matchedSkills?: string[];
+    missingSkills?: string[];
+    likelyTopics?: string[];
+    likelyTechnical?: string[];
+    likelyBehavioral?: string[];
+    likelyProjectQuestions?: string[];
+    likelyResumeQuestions?: string[];
+  } | null;
+}
+
+export function practiceTutorPrompt(
+  history: PracticeTurn[],
+  depth: AnswerDepth,
+  context?: PracticeContextInfo
+): string {
   const transcript = history
     .map((m) => `${m.role === "user" ? "Candidate" : "Tutor"}: ${clip(m.text, 4000)}`)
     .join("\n\n");
-  return `You are an expert interview-prep tutor. The candidate pastes interview or coding questions (text, problem descriptions, error messages, code, or screenshots) and wants to understand them deeply — accuracy and genuine understanding matter more than a fast, confident-sounding answer.
 
+  const contextBlocks: string[] = [];
+  if (context) {
+    if (context.jobTitle || context.company || context.techStack || context.experienceLevel) {
+      contextBlocks.push(
+        `Target Role Context:
+- Target Job Title: ${context.jobTitle || "(not specified)"}
+- Company: ${context.company || "(not specified)"}
+- Experience Level: ${context.experienceLevel || "(not specified)"}
+- Required Skills & Tech Stack: ${[context.requiredSkills, context.techStack].filter(Boolean).join(", ") || "(not specified)"}`
+      );
+    }
+    if (context.analysis) {
+      const a = context.analysis;
+      contextBlocks.push(
+        `Candidate Analysis & Fit (ground all answers in this verified background):
+- Candidate Profile: ${a.candidateProfile || ""}
+- Demonstrated Strengths: ${a.strengths?.join("; ") || "None"}
+- Relevant Experience & Projects: ${a.relevantExperience || ""}
+- Matched Skills: ${a.matchedSkills?.join("; ") || "None"}
+- Areas to Brush Up / Missing Skills: ${a.missingSkills?.join("; ") || "None"}`
+      );
+    }
+    if (context.resumeText?.trim()) {
+      contextBlocks.push(`Candidate Resume Background:\n"""${clip(context.resumeText, 2500)}"""`);
+    }
+    if (context.jobDescription?.trim()) {
+      contextBlocks.push(`Job Description Context:\n"""${clip(context.jobDescription, 2000)}"""`);
+    }
+  }
+
+  const contextSection = contextBlocks.length > 0
+    ? `\n\nAccumulated Practice Session Context:\n${contextBlocks.join("\n\n")}\n`
+    : "";
+
+  return `You are an expert interview-prep tutor and coach. The candidate pastes interview or coding questions (text, problem descriptions, error messages, code, or screenshots) and wants to understand them deeply — accuracy, genuine understanding, and practical interview readiness matter most.${contextSection}
 Rules:
-- If screenshots are attached, read the question from them first and treat that as part of the candidate's message.
-- If the question is incomplete or ambiguous, do NOT invent requirements, constraints, or examples. Solve what is given, then add a "### Missing Information" section listing exactly what is missing or assumed.
+- If screenshots are attached, inspect and read the question/code/diagrams from them first and treat that as part of the candidate's prompt.
+- Context Grounding & Personalization: If Candidate Background, Resume, or Target Role Context is provided above, tailor the answer directly to the candidate's actual projects, background, and target role.
+- Never invent experience, companies, degrees, certifications, metrics, or projects that are not present in the provided context. If the question asks "tell me about a project" or "describe your experience with X", use the candidate's real projects and technologies from the context.
+- For interview-ready answers: write natural, first-person spoken responses that the candidate can deliver with confidence in an interview.
+- If the question is incomplete or ambiguous, do NOT invent requirements or constraints. Solve what is given, then add a "### Missing Information" section listing what is assumed or missing.
 - For coding/algorithm questions use this structure:
 ${PRACTICE_CODING_STRUCTURE}
-- For conceptual questions use this structure:
+- For conceptual/behavioral/interview questions use this structure:
 ${PRACTICE_CONCEPT_STRUCTURE}
 - If the question states a preferred language, solve in that language; otherwise pick the most natural one and say why in one line.
 - Later turns are follow-ups about the same problem — use the conversation above as context and keep earlier sections available by reference instead of repeating them.

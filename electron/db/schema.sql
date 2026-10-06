@@ -129,6 +129,14 @@ CREATE TABLE IF NOT EXISTS practice_sessions (
   depth TEXT NOT NULL DEFAULT 'moderate',
   draft_text TEXT NOT NULL DEFAULT '',
   turns_json TEXT NOT NULL DEFAULT '[]',
+  resume_text TEXT NOT NULL DEFAULT '',
+  job_title TEXT NOT NULL DEFAULT '',
+  company TEXT NOT NULL DEFAULT '',
+  job_description TEXT NOT NULL DEFAULT '',
+  required_skills TEXT NOT NULL DEFAULT '',
+  tech_stack TEXT NOT NULL DEFAULT '',
+  experience_level TEXT NOT NULL DEFAULT '',
+  context_analysis_json TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

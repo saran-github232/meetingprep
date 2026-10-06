@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import type { AnswerDepth } from "../../electron/ai/AIProvider";
-import type { PracticeTurn, PracticeSection } from "../../electron/ai/promptTemplates";
+import type { PracticeTurn, PracticeSection, PracticeContextInfo } from "../../electron/ai/promptTemplates";
 import {
   parsePracticeSections,
   practiceTutorPrompt,
   practiceSessionTitle,
   trimPracticeHistory,
 } from "../../electron/ai/promptTemplates";
+import type { InterviewCoachContext, CoachSetup } from "../../electron/ai/interviewCoach";
 import { useDictation } from "../lib/speech";
 import { MicButton, InterimLine } from "../components/MicButton";
 import { MarkdownText } from "../components/AnswerSections";
@@ -37,15 +38,38 @@ interface Turn {
   error?: string;
 }
 
+export interface PracticeContextState {
+  resumeText: string;
+  jobTitle: string;
+  company: string;
+  jobDescription: string;
+  requiredSkills: string;
+  techStack: string;
+  experienceLevel: string;
+  analysis: InterviewCoachContext | null;
+}
+
 interface Session {
   id: string;
   title: string;
   turns: Turn[];
   depth: AnswerDepth;
   draftText: string;
+  context: PracticeContextState;
   createdAt: string;
   updatedAt: string;
 }
+
+const DEFAULT_CONTEXT: PracticeContextState = {
+  resumeText: "",
+  jobTitle: "",
+  company: "",
+  jobDescription: "",
+  requiredSkills: "",
+  techStack: "",
+  experienceLevel: "Mid-level (2-5 years)",
+  analysis: null,
+};
 
 function createNewSession(overrideTitle?: string): Session {
   const now = new Date().toISOString();
@@ -55,6 +79,7 @@ function createNewSession(overrideTitle?: string): Session {
     turns: [],
     depth: "medium",
     draftText: "",
+    context: { ...DEFAULT_CONTEXT },
     createdAt: now,
     updatedAt: now,
   };
@@ -66,6 +91,13 @@ const DEPTHS: AnswerDepth[] = [
   "detailed",
   "interview-ready",
   "expert-level",
+];
+
+const EXPERIENCE_OPTIONS = [
+  "Entry-level (0-2 years)",
+  "Mid-level (2-5 years)",
+  "Senior (5-8 years)",
+  "Staff / Lead (8+ years)",
 ];
 
 // ---------------------------------------------------------------------------
@@ -140,6 +172,13 @@ export default function Practice() {
   const [loadedFromDb, setLoadedFromDb] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
 
+  // --- UI Drawer / Context Panel --------------------------------------------
+  const [showContextPanel, setShowContextPanel] = useState(false);
+  const [contextTab, setContextTab] = useState<"resume" | "job" | "analysis">("resume");
+  const [isAnalyzingContext, setIsAnalyzingContext] = useState(false);
+  const [isParsingJd, setIsParsingJd] = useState(false);
+  const [contextMessage, setContextMessage] = useState<string | null>(null);
+
   // --- Per-input & UI state -------------------------------------------------
   const [inputText, setInputText] = useState("");
   const [pastedImages, setPastedImages] = useState<PastedImage[]>([]);
@@ -171,7 +210,6 @@ export default function Practice() {
             let turns: Turn[] = [];
             try {
               turns = JSON.parse(r.turns_json || "[]");
-              // Mark any lingering streaming turn as interrupted
               turns = turns.map((t) => {
                 if (t.role === "assistant" && t.streaming) {
                   return { ...t, streaming: false, interrupted: true };
@@ -181,12 +219,32 @@ export default function Practice() {
             } catch (err) {
               console.error("Failed to parse session turns:", err);
             }
+
+            let analysis: InterviewCoachContext | null = null;
+            if (r.context_analysis_json) {
+              try {
+                analysis = JSON.parse(r.context_analysis_json);
+              } catch (e) {
+                console.error("Failed to parse context analysis:", e);
+              }
+            }
+
             return {
               id: r.id,
               title: r.title,
               depth: (r.depth as AnswerDepth) || "medium",
               draftText: r.draft_text || "",
               turns,
+              context: {
+                resumeText: r.resume_text || "",
+                jobTitle: r.job_title || "",
+                company: r.company || "",
+                jobDescription: r.job_description || "",
+                requiredSkills: r.required_skills || "",
+                techStack: r.tech_stack || "",
+                experienceLevel: r.experience_level || "Mid-level (2-5 years)",
+                analysis,
+              },
               createdAt: r.created_at,
               updatedAt: r.updated_at,
             };
@@ -203,9 +261,20 @@ export default function Practice() {
           const activeSess = parsedSessions.find((s) => s.id === targetId) || parsedSessions[0];
           setInputText(initialQuestion || activeSess.draftText || "");
         } else {
-          // Create brand-new initial session
+          // Create brand-new initial session and check if global resume exists
           const newS = createNewSession(initialQuestion || undefined);
           if (initialQuestion) newS.draftText = initialQuestion;
+
+          // Attempt to pre-fill global saved resume if present
+          try {
+            const savedResume = await window.api.resume.get();
+            if (savedResume?.trim()) {
+              newS.context.resumeText = savedResume;
+            }
+          } catch {
+            // ignore
+          }
+
           setSessions([newS]);
           setActiveId(newS.id);
           setInputText(initialQuestion);
@@ -215,6 +284,14 @@ export default function Practice() {
             depth: newS.depth,
             draft_text: newS.draftText,
             turns_json: JSON.stringify(newS.turns),
+            resume_text: newS.context.resumeText,
+            job_title: newS.context.jobTitle,
+            company: newS.context.company,
+            job_description: newS.context.jobDescription,
+            required_skills: newS.context.requiredSkills,
+            tech_stack: newS.context.techStack,
+            experience_level: newS.context.experienceLevel,
+            context_analysis_json: "",
           });
           window.api.practice.setActiveSessionId(newS.id);
         }
@@ -243,12 +320,11 @@ export default function Practice() {
     );
   }, [inputText, activeId, loadedFromDb]);
 
-  // --- Auto-Save persistence with debounce ---------------------------------
+  // --- Auto-Save persistence -----------------------------------------------
   const persistSession = useCallback(async (sess: Session) => {
     if (!sess) return;
     setSaveStatus("saving");
     try {
-      // Clean up turns for storage (strip volatile flags)
       const cleanTurns = sess.turns.map((t) => ({
         ...t,
         streaming: false,
@@ -259,6 +335,14 @@ export default function Practice() {
         depth: sess.depth,
         draft_text: sess.draftText || "",
         turns_json: JSON.stringify(cleanTurns),
+        resume_text: sess.context?.resumeText || "",
+        job_title: sess.context?.jobTitle || "",
+        company: sess.context?.company || "",
+        job_description: sess.context?.jobDescription || "",
+        required_skills: sess.context?.requiredSkills || "",
+        tech_stack: sess.context?.techStack || "",
+        experience_level: sess.context?.experienceLevel || "",
+        context_analysis_json: sess.context?.analysis ? JSON.stringify(sess.context.analysis) : "",
       });
       setSaveStatus("saved");
     } catch (err) {
@@ -267,7 +351,7 @@ export default function Practice() {
     }
   }, []);
 
-  // Queue debounced save when sessions change
+  // Debounced save
   useEffect(() => {
     if (!loadedFromDb || !activeSession) return;
 
@@ -281,7 +365,7 @@ export default function Practice() {
     };
   }, [sessions, activeSession, loadedFromDb, persistSession]);
 
-  // Immediately flush save on window blur or visibility change
+  // Immediately flush on blur / hide
   useEffect(() => {
     const handleFlush = () => {
       if (activeSession) persistSession(activeSession);
@@ -326,7 +410,6 @@ export default function Practice() {
   // --- Session Switching & Management --------------------------------------
   const switchSession = async (targetId: string) => {
     if (targetId === activeId) return;
-    // Flush current session save immediately
     if (activeSession) await persistSession(activeSession);
 
     setActiveId(targetId);
@@ -344,6 +427,10 @@ export default function Practice() {
     if (activeSession) await persistSession(activeSession);
 
     const s = createNewSession();
+    // Inherit resume if previous session had one, but create new independent context
+    if (activeSession?.context?.resumeText) {
+      s.context.resumeText = activeSession.context.resumeText;
+    }
     const updated = [s, ...sessions];
     setSessions(updated);
     setActiveId(s.id);
@@ -351,13 +438,7 @@ export default function Practice() {
     setPastedImages([]);
     setError(null);
 
-    await window.api.practice.saveSession({
-      id: s.id,
-      title: s.title,
-      depth: s.depth,
-      draft_text: "",
-      turns_json: "[]",
-    });
+    await persistSession(s);
     window.api.practice.setActiveSessionId(s.id);
 
     setTimeout(() => textareaRef.current?.focus(), 50);
@@ -381,13 +462,7 @@ export default function Practice() {
       setSessions([fresh]);
       setActiveId(fresh.id);
       setInputText("");
-      await window.api.practice.saveSession({
-        id: fresh.id,
-        title: fresh.title,
-        depth: fresh.depth,
-        draft_text: "",
-        turns_json: "[]",
-      });
+      await persistSession(fresh);
       window.api.practice.setActiveSessionId(fresh.id);
     } else {
       setSessions(remaining);
@@ -422,6 +497,109 @@ export default function Practice() {
   function updateSession(id: string, patch: Partial<Session>) {
     setSessions((p) => p.map((s) => (s.id === id ? { ...s, ...patch, updatedAt: new Date().toISOString() } : s)));
   }
+
+  function updateActiveContext(patch: Partial<PracticeContextState>) {
+    setSessions((p) =>
+      p.map((s) =>
+        s.id === activeId
+          ? {
+              ...s,
+              context: { ...s.context, ...patch },
+              updatedAt: new Date().toISOString(),
+            }
+          : s
+      )
+    );
+  }
+
+  // --- Context Pipeline Helpers ---------------------------------------------
+  const handleImportPdfResume = async () => {
+    try {
+      setContextMessage("Reading PDF resume...");
+      const res = await window.api.resume.importPdf();
+      if (res?.text?.trim()) {
+        updateActiveContext({ resumeText: res.text.trim() });
+        setContextMessage(`✓ Resume imported (${res.text.length} characters)`);
+      } else {
+        setContextMessage(null);
+      }
+    } catch (err) {
+      setContextMessage(`PDF import error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleLoadSavedResume = async () => {
+    try {
+      const text = await window.api.resume.get();
+      if (text?.trim()) {
+        updateActiveContext({ resumeText: text.trim() });
+        setContextMessage(`✓ Loaded saved resume (${text.length} characters)`);
+      } else {
+        setContextMessage("No saved profile resume found. Paste or import a PDF.");
+      }
+    } catch (err) {
+      setContextMessage(`Error loading resume: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleAutoParseJd = async () => {
+    const raw = activeSession.context.jobDescription.trim();
+    if (raw.length < 30) {
+      setContextMessage("Paste a job description or posting first to auto-extract fields.");
+      return;
+    }
+    setIsParsingJd(true);
+    setContextMessage("Analyzing job posting with AI...");
+    try {
+      const parsed = await window.api.coach.parseJobPosting(raw);
+      updateActiveContext({
+        jobTitle: parsed.jobTitle || activeSession.context.jobTitle,
+        company: parsed.company || activeSession.context.company,
+        requiredSkills: parsed.requiredSkills || activeSession.context.requiredSkills,
+        techStack: parsed.requiredSkills ? parsed.requiredSkills.split("\n").join(", ") : activeSession.context.techStack,
+      });
+      setContextMessage("✓ Job fields successfully extracted from posting!");
+    } catch (err) {
+      setContextMessage(`Parsing error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsParsingJd(false);
+    }
+  };
+
+  const handleRunAnalysis = async () => {
+    const ctx = activeSession.context;
+    if (!ctx.jobDescription.trim() && !ctx.jobTitle.trim() && !ctx.company.trim()) {
+      setContextMessage("Please provide at least a Job Description, Job Title, or Company.");
+      return;
+    }
+    setIsAnalyzingContext(true);
+    setContextMessage("Analyzing Resume against Job Description...");
+    try {
+      const setup: CoachSetup = {
+        jobTitle: ctx.jobTitle,
+        company: ctx.company,
+        jobDescription: ctx.jobDescription,
+        requiredSkills: ctx.requiredSkills,
+        preferredSkills: "",
+        experienceLevel: ctx.experienceLevel,
+        responsibilities: "",
+        techStack: ctx.techStack,
+        interviewType: "mixed",
+        notes: "",
+      };
+      const analysis = await window.api.practice.analyze({
+        resumeText: ctx.resumeText || null,
+        setup,
+      });
+      updateActiveContext({ analysis });
+      setContextTab("analysis");
+      setContextMessage("✓ Analysis complete! Grounded interview context is active.");
+    } catch (err) {
+      setContextMessage(`Analysis failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsAnalyzingContext(false);
+    }
+  };
 
   // --- Clipboard image paste ------------------------------------------------
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -512,7 +690,19 @@ export default function Practice() {
     }));
     history.push({ role: "user", text });
 
-    const prompt = practiceTutorPrompt(trimPracticeHistory(history), activeSession.depth);
+    // Accumulated practice context passed directly to tutor prompt
+    const contextInfo: PracticeContextInfo = {
+      resumeText: activeSession.context.resumeText,
+      jobTitle: activeSession.context.jobTitle,
+      company: activeSession.context.company,
+      jobDescription: activeSession.context.jobDescription,
+      requiredSkills: activeSession.context.requiredSkills,
+      techStack: activeSession.context.techStack,
+      experienceLevel: activeSession.context.experienceLevel,
+      analysis: activeSession.context.analysis,
+    };
+
+    const prompt = practiceTutorPrompt(trimPracticeHistory(history), activeSession.depth, contextInfo);
     const imagesPayload = userTurn.images.map((img) => ({
       mimeType: img.mimeType,
       data: img.data,
@@ -561,7 +751,6 @@ export default function Practice() {
       (msg) => {
         setError(msg);
         setLoading(false);
-        // Mark assistant turn as interrupted
         setSessions((p) =>
           p.map((s) => {
             if (s.id !== sid) return s;
@@ -585,13 +774,23 @@ export default function Practice() {
     }
   };
 
+  const handleAskSuggestedQuestion = (q: string) => {
+    setInputText(q);
+    setShowContextPanel(false);
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  };
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
+  const hasAnalysis = Boolean(activeSession.context.analysis);
+  const hasResume = Boolean(activeSession.context.resumeText?.trim());
+  const hasJob = Boolean(activeSession.context.jobDescription?.trim() || activeSession.context.jobTitle?.trim());
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Tab strip ──────────────────────────────────────────────────────── */}
-      <div className="flex shrink-0 items-center justify-between gap-1.5 border-b border-hairline px-3 pb-0 pt-3 bg-surface/40">
+      <div className="flex shrink-0 items-center justify-between gap-1.5 border-b border-hairline px-3 pb-0 pt-2.5 bg-surface/40">
         <div className="practice-tabs flex items-center gap-1 overflow-x-auto no-scrollbar">
           {sessions.map((s) => (
             <div
@@ -659,25 +858,325 @@ export default function Practice() {
           </button>
         </div>
 
-        {/* Save Status Indicator */}
-        <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] select-none shrink-0">
-          {saveStatus === "saving" && (
-            <span className="flex items-center gap-1 text-amber-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" /> Saving…
-            </span>
-          )}
-          {saveStatus === "saved" && (
-            <span className="flex items-center gap-1 text-emerald-400/80">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Saved
-            </span>
-          )}
-          {saveStatus === "error" && (
-            <span className="flex items-center gap-1 text-rose-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-rose-400" /> Save failed
-            </span>
-          )}
+        {/* Save Status & Context Toggle Indicator */}
+        <div className="flex items-center gap-2 select-none shrink-0 py-1">
+          <button
+            onClick={() => setShowContextPanel(!showContextPanel)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] border transition-colors ${
+              hasAnalysis
+                ? "bg-accent/15 border-accent/40 text-accent font-medium hover:bg-accent/25"
+                : hasResume || hasJob
+                ? "bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25"
+                : "bg-surface border-hairline text-muted hover:text-fg hover:border-faint"
+            }`}
+            title="Configure Resume, Job Details, and Accumulated Interview Context"
+          >
+            <span>{hasAnalysis ? "✓ Context Active" : hasResume || hasJob ? "⚡ Finish Context" : "📋 Setup Context"}</span>
+            <span className="text-[10px] opacity-75">{showContextPanel ? "▲" : "▼"}</span>
+          </button>
+
+          <div className="flex items-center gap-1 text-[11px] text-faint">
+            {saveStatus === "saving" && (
+              <span className="flex items-center gap-1 text-amber-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" /> Saving…
+              </span>
+            )}
+            {saveStatus === "saved" && (
+              <span className="flex items-center gap-1 text-emerald-400/80">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Saved
+              </span>
+            )}
+            {saveStatus === "error" && (
+              <span className="flex items-center gap-1 text-rose-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-400" /> Save failed
+              </span>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* ── Context Drawer / Panel (Interview Coach Intelligence) ─────────────── */}
+      {showContextPanel && (
+        <div className="shrink-0 border-b border-hairline bg-raised/95 backdrop-blur-md px-3 py-3 shadow-lg animate-fadeIn">
+          <div className="flex items-center justify-between pb-2 border-b border-hairline/60">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-fg flex items-center gap-1">
+                <IconSpark size={13} className="text-accent" /> Practice Session Context
+              </span>
+              <span className="text-[11px] text-muted">
+                (Grounds all AI answers in your resume & target role)
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1 text-xs">
+              <button
+                onClick={() => setContextTab("resume")}
+                className={`px-2.5 py-1 rounded text-xs transition-colors ${
+                  contextTab === "resume" ? "bg-accent/20 text-accent font-medium" : "text-muted hover:text-fg"
+                }`}
+              >
+                1. Resume {hasResume && "✓"}
+              </button>
+              <button
+                onClick={() => setContextTab("job")}
+                className={`px-2.5 py-1 rounded text-xs transition-colors ${
+                  contextTab === "job" ? "bg-accent/20 text-accent font-medium" : "text-muted hover:text-fg"
+                }`}
+              >
+                2. Target Job {hasJob && "✓"}
+              </button>
+              <button
+                onClick={() => setContextTab("analysis")}
+                className={`px-2.5 py-1 rounded text-xs transition-colors ${
+                  contextTab === "analysis" ? "bg-accent/20 text-accent font-medium" : "text-muted hover:text-fg"
+                }`}
+              >
+                3. Interview Fit {hasAnalysis && "✓"}
+              </button>
+              <button
+                onClick={() => setShowContextPanel(false)}
+                className="btn-ghost btn-xs text-muted hover:text-fg ml-2"
+              >
+                Close ✕
+              </button>
+            </div>
+          </div>
+
+          {contextMessage && (
+            <div className="my-2 text-[11.5px] px-2.5 py-1 rounded bg-accent/10 border border-accent/20 text-accent flex items-center justify-between">
+              <span>{contextMessage}</span>
+              <button onClick={() => setContextMessage(null)} className="text-[10px] text-muted hover:text-fg">✕</button>
+            </div>
+          )}
+
+          {/* TAB 1: RESUME */}
+          {contextTab === "resume" && (
+            <div className="pt-2 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11.5px] font-medium text-fg/90">
+                  Candidate Resume Background
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={handleImportPdfResume}
+                    className="btn-ghost btn-xs text-xs flex items-center gap-1"
+                    title="Pick a PDF resume from your computer"
+                  >
+                    📄 Import PDF
+                  </button>
+                  <button
+                    onClick={handleLoadSavedResume}
+                    className="btn-ghost btn-xs text-xs flex items-center gap-1"
+                    title="Reuse your saved resume from profile"
+                  >
+                    👤 Load Saved Profile Resume
+                  </button>
+                </div>
+              </div>
+              <textarea
+                className="textarea text-xs font-mono"
+                rows={3}
+                placeholder="Paste your resume text here, or import a PDF above..."
+                value={activeSession.context.resumeText}
+                onChange={(e) => updateActiveContext({ resumeText: e.target.value })}
+              />
+              <div className="flex items-center justify-between text-[11px] text-muted">
+                <span>{activeSession.context.resumeText.length} characters</span>
+                <button
+                  onClick={() => setContextTab("job")}
+                  className="btn-ghost btn-xs text-accent hover:underline"
+                >
+                  Next: Target Job ➔
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: JOB DESCRIPTION */}
+          {contextTab === "job" && (
+            <div className="pt-2 space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[11px] text-muted block mb-0.5">Target Job Title</label>
+                  <input
+                    type="text"
+                    className="input input-xs w-full text-xs"
+                    placeholder="e.g. Senior Software Engineer"
+                    value={activeSession.context.jobTitle}
+                    onChange={(e) => updateActiveContext({ jobTitle: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-muted block mb-0.5">Company</label>
+                  <input
+                    type="text"
+                    className="input input-xs w-full text-xs"
+                    placeholder="e.g. Google, Amazon, Startup"
+                    value={activeSession.context.company}
+                    onChange={(e) => updateActiveContext({ company: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-muted block mb-0.5">Experience Level</label>
+                  <select
+                    className="select select-xs w-full text-xs"
+                    value={activeSession.context.experienceLevel}
+                    onChange={(e) => updateActiveContext({ experienceLevel: e.target.value })}
+                  >
+                    {EXPERIENCE_OPTIONS.map((o) => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[11px] text-muted block mb-0.5">Required Skills</label>
+                  <input
+                    type="text"
+                    className="input input-xs w-full text-xs"
+                    placeholder="e.g. Python, SQL, System Design"
+                    value={activeSession.context.requiredSkills}
+                    onChange={(e) => updateActiveContext({ requiredSkills: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-muted block mb-0.5">Tech Stack</label>
+                  <input
+                    type="text"
+                    className="input input-xs w-full text-xs"
+                    placeholder="e.g. FastAPI, PostgreSQL, Docker, AWS"
+                    value={activeSession.context.techStack}
+                    onChange={(e) => updateActiveContext({ techStack: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-0.5">
+                  <label className="text-[11px] text-muted">Job Description / Raw Posting</label>
+                  <button
+                    onClick={handleAutoParseJd}
+                    disabled={isParsingJd || activeSession.context.jobDescription.length < 30}
+                    className="btn-ghost btn-xs text-[11px] text-accent flex items-center gap-1"
+                  >
+                    {isParsingJd ? "Parsing with AI…" : "✨ Auto-Extract Fields from Posting"}
+                  </button>
+                </div>
+                <textarea
+                  className="textarea text-xs"
+                  rows={2}
+                  placeholder="Paste the full job posting or description here..."
+                  value={activeSession.context.jobDescription}
+                  onChange={(e) => updateActiveContext({ jobDescription: e.target.value })}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  onClick={handleRunAnalysis}
+                  disabled={isAnalyzingContext}
+                  className="btn-primary btn-xs text-xs flex items-center gap-1"
+                >
+                  <IconSpark size={12} className={isAnalyzingContext ? "animate-spin" : ""} />
+                  {isAnalyzingContext ? "Analyzing Match…" : "Run Context Analysis & Match ➔"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: ANALYSIS & FIT */}
+          {contextTab === "analysis" && (
+            <div className="pt-2 space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
+              {!activeSession.context.analysis ? (
+                <div className="py-4 text-center space-y-2">
+                  <p className="text-xs text-muted">
+                    No context analysis run yet for this session.
+                  </p>
+                  <button
+                    onClick={handleRunAnalysis}
+                    disabled={isAnalyzingContext}
+                    className="btn-primary btn-xs text-xs"
+                  >
+                    {isAnalyzingContext ? "Analyzing…" : "Run Context Analysis Now"}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2 text-xs">
+                  {/* Profile & Strengths */}
+                  <div className="p-2 rounded bg-surface border border-hairline/60 space-y-1">
+                    <p className="font-semibold text-fg text-[12px]">Candidate Profile Fit</p>
+                    <p className="text-fg/80 leading-relaxed text-[11.5px]">
+                      {activeSession.context.analysis.candidateProfile}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="p-2 rounded bg-surface border border-hairline/60">
+                      <p className="font-semibold text-emerald-400 text-[11.5px] mb-1">✓ Verified Strengths</p>
+                      <ul className="list-disc list-inside space-y-0.5 text-[11px] text-fg/80">
+                        {activeSession.context.analysis.strengths.slice(0, 3).map((s, i) => (
+                          <li key={i}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="p-2 rounded bg-surface border border-hairline/60">
+                      <p className="font-semibold text-amber-400 text-[11.5px] mb-1">⚡ Focus Areas / Missing Skills</p>
+                      <ul className="list-disc list-inside space-y-0.5 text-[11px] text-fg/80">
+                        {activeSession.context.analysis.missingSkills.slice(0, 3).map((s, i) => (
+                          <li key={i}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Predicted Questions with 1-click ask */}
+                  {(activeSession.context.analysis.likelyTechnical.length > 0 ||
+                    activeSession.context.analysis.likelyBehavioral.length > 0) && (
+                    <div className="p-2 rounded bg-surface border border-hairline/60 space-y-1.5">
+                      <p className="font-semibold text-fg text-[11.5px]">Likely Interview Questions for You:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          ...activeSession.context.analysis.likelyTechnical.slice(0, 2),
+                          ...activeSession.context.analysis.likelyBehavioral.slice(0, 2),
+                          ...activeSession.context.analysis.likelyProjectQuestions.slice(0, 1),
+                        ].map((q, i) => (
+                          <button
+                            key={i}
+                            onClick={() => handleAskSuggestedQuestion(q)}
+                            className="chip chip-idle text-[11px] hover:text-accent hover:border-accent text-left"
+                            title="Click to paste into input and practice"
+                          >
+                            <span>💬 {q}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      onClick={handleRunAnalysis}
+                      disabled={isAnalyzingContext}
+                      className="btn-ghost btn-xs text-[11px]"
+                    >
+                      Re-run Analysis
+                    </button>
+                    <button
+                      onClick={() => setShowContextPanel(false)}
+                      className="btn-primary btn-xs text-[11px]"
+                    >
+                      Done (Back to Practice)
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Conversation ───────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-3 py-4 lg:px-5">
@@ -692,12 +1191,22 @@ export default function Practice() {
                 Interview Practice Workspace
               </p>
               <p className="mt-1 max-w-sm text-[13px] leading-relaxed text-muted">
-                Paste a question, coding problem, error message, or screenshot
-                (Ctrl+V). All sessions auto-save automatically.
+                Paste any interview question, problem description, code, or screenshot (Ctrl+V).
+                {hasAnalysis
+                  ? " Answers will be personalized to your resume & target role."
+                  : " Configure your Resume and Job Details above for personalized answers."}
               </p>
             </div>
             <div className="mt-1 flex flex-wrap justify-center gap-2">
-              {["Two Sum (LeetCode)", "Explain async/await in JS", "SQL JOIN vs GROUP BY"].map(
+              {hasAnalysis && activeSession.context.analysis?.likelyTechnical[0] ? (
+                <button
+                  onClick={() => handleAskSuggestedQuestion(activeSession.context.analysis!.likelyTechnical[0])}
+                  className="chip chip-idle text-[11.5px] border-accent/40 text-accent"
+                >
+                  💬 {activeSession.context.analysis.likelyTechnical[0]}
+                </button>
+              ) : null}
+              {["Two Sum (LeetCode)", "Explain async/await in JS", "Tell me about a challenging project"].map(
                 (ex) => (
                   <button
                     key={ex}
@@ -751,7 +1260,7 @@ export default function Practice() {
                   {turn.streaming && turn.sections.length === 0 && (
                     <div className="flex items-center gap-2 text-[12.5px] text-faint">
                       <IconSpark size={13} className="animate-spin text-accent" />
-                      Analyzing question & code…
+                      Analyzing question & personalizing with your context…
                     </div>
                   )}
                   {turn.sections.map((sec, si) => (
@@ -765,7 +1274,7 @@ export default function Practice() {
                   {turn.streaming && turn.sections.length > 0 && (
                     <div className="flex items-center gap-2 text-[11.5px] text-faint">
                       <IconSpark size={12} className="animate-spin text-accent" />
-                      Generating explanation…
+                      Generating personalized answer…
                     </div>
                   )}
                   {turn.interrupted && (
@@ -824,10 +1333,10 @@ export default function Practice() {
         <textarea
           ref={textareaRef}
           className="textarea"
-          rows={activeSession.turns.length === 0 ? 4 : 2}
+          rows={activeSession.turns.length === 0 ? 3 : 2}
           placeholder={
             activeSession.turns.length === 0
-              ? "Paste your interview question, problem description, code, or screenshot here… (Ctrl+V for images)"
+              ? "Paste your interview question, coding problem, error message, or screenshot here… (Ctrl+V for images)"
               : "Ask a follow-up or paste more context…"
           }
           value={inputText}
