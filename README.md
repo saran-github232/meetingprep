@@ -165,6 +165,8 @@ A pinned model is used *alone* (no fallback), so a typo'd name surfaces as a cle
 
 ## Interview Coach
 
+A dedicated navigation item for interview *preparation*: one job application, analyzed once, then rehearsed against. The phased implementation plan, functional ownership areas, and per-phase status live in [INTERVIEW_COACH_PLAN.md](INTERVIEW_COACH_PLAN.md).
+
 **Setup flow** — the first visit shows a three-step wizard:
 
 1. **Resume** — import a PDF (extracted locally), paste the text, reuse your saved **Resume Context**, or skip (suggested answers then stay generic and Resume Evidence is empty).
