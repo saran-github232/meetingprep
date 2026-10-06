@@ -6,6 +6,7 @@ import type {
   QuestionCategory,
   InterviewPrepItem,
   CoachSpeed,
+  PracticeImage,
 } from "./AIProvider";
 import {
   CATEGORIES,
@@ -40,13 +41,23 @@ export class OpenAIProvider implements AIProvider {
     stream: boolean,
     maxTokens?: number
   ): Promise<Response> {
+    return this.requestMessages(model, [{ role: "user", content: prompt }], stream, maxTokens);
+  }
+
+  // Messages variant so practice turns can carry vision content parts (text + images).
+  private async requestMessages(
+    model: string,
+    messages: Array<{ role: string; content: unknown }>,
+    stream: boolean,
+    maxTokens?: number
+  ): Promise<Response> {
     return withRetry(async () => {
       const res = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
         body: JSON.stringify({
           model,
-          messages: [{ role: "user", content: prompt }],
+          messages,
           stream,
           ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
         }),
@@ -155,5 +166,28 @@ export class OpenAIProvider implements AIProvider {
 
   streamCoach(prompt: string, _speed: CoachSpeed, maxOutputTokens: number): AsyncIterable<string> {
     return this.streamChat(prompt, maxOutputTokens);
+  }
+
+  private async *streamWithMessages(
+    model: string,
+    messages: Array<{ role: string; content: unknown }>
+  ): AsyncIterable<string> {
+    const res = await this.requestMessages(model, messages, true);
+    for await (const data of sseEvents(res)) {
+      if (data === "[DONE]") continue;
+      const text = JSON.parse(data).choices?.[0]?.delta?.content;
+      if (text) yield text;
+    }
+  }
+
+  // Practice turns: vision content parts (data-URI images) when screenshots are attached.
+  streamPracticeTurn(prompt: string, images: PracticeImage[]): AsyncIterable<string> {
+    const content: unknown[] = [{ type: "text", text: prompt }];
+    for (const image of images) {
+      content.push({ type: "image_url", image_url: { url: `data:${image.mimeType};base64,${image.data}` } });
+    }
+    return withStreamFallback(
+      MODELS.map((model) => () => this.streamWithMessages(model, [{ role: "user", content }]))
+    );
   }
 }

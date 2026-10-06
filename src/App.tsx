@@ -101,7 +101,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex h-screen flex-col bg-bg text-fg">
+    <div className="flex h-screen flex-col overflow-hidden bg-bg text-fg">
       {/* custom titlebar — the window is frameless (see main.ts) so this replaces the
           native title bar; traffic lights match the mac-style Liquid Glass look on every OS */}
       <div className="flex h-10 shrink-0 items-center gap-3 px-4 [-webkit-app-region:drag]">
@@ -155,14 +155,14 @@ export default function App() {
         </button>
       </div>
 
-      <div className="flex flex-1 gap-3 overflow-hidden px-3 pb-3">
-      <aside className="relative flex w-64 shrink-0 flex-col overflow-hidden rounded-[28px] border border-hairline bg-surface/70 shadow-pop backdrop-blur-2xl">
+      <div className="flex flex-1 gap-2 overflow-hidden px-2 pb-2 lg:gap-3 lg:px-3 lg:pb-3">
+      <aside className="relative flex w-14 shrink-0 flex-col overflow-hidden rounded-[20px] border border-hairline bg-surface/70 shadow-pop backdrop-blur-2xl sm:w-52 lg:w-64 lg:rounded-[28px]">
         {/* brand */}
-        <div className="flex items-center gap-2.5 px-5 pb-5 pt-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-[11px] bg-gradient-to-br from-accent to-accent-strong text-white shadow-glow">
+        <div className="flex items-center gap-2.5 px-3 pb-4 pt-4 sm:px-5 sm:pb-5 sm:pt-5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-gradient-to-br from-accent to-accent-strong text-white shadow-glow">
             <IconBolt size={17} strokeWidth={2} />
           </div>
-          <div className="leading-tight">
+          <div className="brand-text min-w-0 leading-tight">
             <div className="font-display text-[15px] font-semibold tracking-tight text-fg">
               MeetingPrep <span className="text-accent">AI</span>
             </div>
@@ -171,10 +171,10 @@ export default function App() {
         </div>
 
         {/* nav */}
-        <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
+        <nav className="flex-1 space-y-5 overflow-y-auto px-1.5 pb-4 sm:px-3">
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
-              <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-faint">
+              <div className="nav-label px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-faint">
                 {group.label}
               </div>
               <div className="space-y-0.5">
@@ -183,8 +183,9 @@ export default function App() {
                     key={item.to}
                     to={item.to}
                     end={item.end}
+                    title={item.label}
                     className={({ isActive }) =>
-                      `group flex items-center gap-2.5 rounded-lg px-3 py-[7px] text-[13px] font-medium transition-colors duration-200 ${
+                      `group flex items-center gap-2.5 rounded-lg px-2 py-[7px] text-[13px] font-medium transition-colors duration-200 sm:px-3 ${
                         isActive
                           ? "bg-accent/12 text-fg"
                           : "text-muted hover:bg-fg/[0.05] hover:text-fg"
@@ -199,8 +200,8 @@ export default function App() {
                             isActive ? "text-accent" : "text-faint group-hover:text-muted"
                           }`}
                         />
-                        <span className="truncate">{item.label}</span>
-                        {isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
+                        <span className="nav-label truncate">{item.label}</span>
+                        {isActive && <span className="nav-label ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
                       </>
                     )}
                   </NavLink>
@@ -215,14 +216,14 @@ export default function App() {
           <button
             onClick={toggleStealth}
             title="Hide this window from screen sharing and captures (Ctrl+Shift+H)"
-            className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[12.5px] font-medium transition-colors duration-200 ${
+            className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-[12.5px] font-medium transition-colors duration-200 sm:gap-2.5 sm:px-3 ${
               stealth ? "bg-accent/15 text-accent" : "text-muted hover:bg-fg/[0.05] hover:text-fg"
             }`}
           >
             <IconShield size={15.5} className="shrink-0" />
-            <span className="truncate">Capture shield</span>
+            <span className="sidebar-footer-label truncate">Capture shield</span>
             <span
-              className={`ml-auto h-1.5 w-1.5 rounded-full transition-colors ${
+              className={`sidebar-footer-label ml-auto h-1.5 w-1.5 rounded-full transition-colors ${
                 stealth ? "animate-pulse-soft bg-accent" : "bg-faint/50"
               }`}
             />
@@ -245,20 +246,21 @@ export default function App() {
 
           <NavLink
             to="/settings"
+            title="Settings"
             className={({ isActive }) =>
-              `flex items-center gap-2.5 rounded-lg px-3 py-2 text-[12.5px] font-medium transition-colors duration-200 ${
+              `flex items-center gap-2 rounded-lg px-2 py-2 text-[12.5px] font-medium transition-colors duration-200 sm:gap-2.5 sm:px-3 ${
                 isActive ? "bg-accent/12 text-fg" : "text-muted hover:bg-fg/[0.05] hover:text-fg"
               }`
             }
           >
             <IconSliders size={15.5} className="shrink-0 text-faint" />
-            Settings
-            <IconChevron size={12} className="ml-auto text-faint" />
+            <span className="sidebar-footer-label">Settings</span>
+            <IconChevron size={12} className="sidebar-footer-label ml-auto text-faint" />
           </NavLink>
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto rounded-[28px]">
+      <main className="min-w-0 flex-1 overflow-y-auto rounded-[20px] lg:rounded-[28px]">
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/prep-room" element={<PrepRoom />} />

@@ -7,6 +7,7 @@ import type {
   QuestionCategory,
   InterviewPrepItem,
   CoachSpeed,
+  PracticeImage,
 } from "./AIProvider";
 import {
   CATEGORIES,
@@ -157,6 +158,35 @@ export class GeminiProvider implements AIProvider {
     const result = await withRetry(() =>
       this.coachModel(name, maxOutputTokens).generateContentStream(prompt)
     );
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      if (text) yield text;
+    }
+  }
+
+  // Practice turns: the prompt is one user message; screenshots attach as inlineData
+  // parts so Gemini reads the question from the image directly (vision-native).
+  streamPracticeTurn(prompt: string, images: PracticeImage[]): AsyncIterable<string> {
+    const request = {
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            ...images.map((i) => ({ inlineData: { mimeType: i.mimeType, data: i.data } })),
+          ],
+        },
+      ],
+    };
+    return withStreamFallback(MODELS.map((name) => () => this.streamPracticeWithModel(name, request)));
+  }
+
+  private async *streamPracticeWithModel(
+    name: string,
+    request: { contents: Array<{ role: string; parts: unknown[] }> }
+  ): AsyncIterable<string> {
+    const parts = request.contents[0]?.parts;
+    const result = await withRetry(() => this.model(name).generateContentStream(parts as any));
     for await (const chunk of result.stream) {
       const text = chunk.text();
       if (text) yield text;

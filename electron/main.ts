@@ -50,8 +50,8 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
-    minWidth: 960,
-    minHeight: 640,
+    minWidth: 580,
+    minHeight: 480,
     show: true,
     backgroundColor: "#131210",
     title: "MeetingPrep AI",

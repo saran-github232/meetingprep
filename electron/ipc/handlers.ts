@@ -118,6 +118,16 @@ export function registerIpcHandlers(getProviders: (prefer?: CoachProviderPrefere
   ipcMain.handle("plan:get", () => db.getPlan());
   ipcMain.handle("plan:set", (_e, plan: db.Plan) => db.setPlan(plan));
 
+  ipcMain.handle("practice:listSessions", () => db.listPracticeSessions());
+  ipcMain.handle("practice:getSession", (_e, id: string) => db.getPracticeSession(id));
+  ipcMain.handle("practice:saveSession", (_e, session: { id: string; title: string; depth: string; draft_text: string; turns_json: string }) =>
+    db.savePracticeSession(session)
+  );
+  ipcMain.handle("practice:deleteSession", (_e, id: string) => db.deletePracticeSession(id));
+  ipcMain.handle("practice:renameSession", (_e, id: string, title: string) => db.renamePracticeSession(id, title));
+  ipcMain.handle("practice:getActiveSessionId", () => db.getActivePracticeSessionId());
+  ipcMain.handle("practice:setActiveSessionId", (_e, id: string) => db.setActivePracticeSessionId(id));
+
   ipcMain.handle("ai:status", () => getProviders().length > 0);
   ipcMain.handle("ai:getActiveProvider", () => db.getActiveProvider());
   ipcMain.handle("ai:setActiveProvider", (_e, provider: AIProviderName) => db.setActiveProvider(provider));
@@ -307,6 +317,26 @@ export function registerIpcHandlers(getProviders: (prefer?: CoachProviderPrefere
         event.sender,
         requestId,
         providers.map((p) => () => p.streamResumeTailoring(resumeText, jobDescription, jobTitle))
+      );
+    }
+  );
+
+  // Interview Practice workspace: one tutoring turn with optional screenshots.
+  // `images` is an array of { mimeType, data } (base64, no "data:" prefix) — the
+  // renderer strips the prefix before sending and the provider attaches them as
+  // vision-native parts (Gemini: inlineData, OpenAI: image_url data: URI, etc.).
+  ipcMain.on(
+    "ai:streamPracticeTurn",
+    async (event, requestId: string, prompt: string, images: import("../ai/AIProvider").PracticeImage[]) => {
+      const providers = getProviders();
+      if (providers.length === 0) {
+        event.sender.send(`ai:error:${requestId}`, "AI provider not configured. Add an API key in Settings.");
+        return;
+      }
+      await runStream(
+        event.sender,
+        requestId,
+        providers.map((p) => () => p.streamPracticeTurn(prompt, images ?? []))
       );
     }
   );

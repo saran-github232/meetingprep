@@ -6,6 +6,7 @@ import type {
   QuestionCategory,
   InterviewPrepItem,
   CoachSpeed,
+  PracticeImage,
 } from "./AIProvider";
 import {
   CATEGORIES,
@@ -42,9 +43,9 @@ export class AnthropicProvider implements AIProvider {
 
   // Retries the request itself if Anthropic responds with a transient 429/503 — fetch only
   // rejects on network failure, so a bad HTTP status has to be turned into a thrown error here.
-  private async requestOk(
+  private async requestMessages(
     model: string,
-    prompt: string,
+    messages: Array<{ role: string; content: unknown }>,
     stream: boolean,
     maxTokens = 4096
   ): Promise<Response> {
@@ -52,7 +53,7 @@ export class AnthropicProvider implements AIProvider {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: this.headers(),
-        body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }], stream }),
+        body: JSON.stringify({ model, max_tokens: maxTokens, messages, stream }),
       });
       if (!res.ok) {
         const err = new Error(`Anthropic error: ${res.status} ${await res.text()}`) as Error & { status: number };
@@ -61,6 +62,15 @@ export class AnthropicProvider implements AIProvider {
       }
       return res;
     });
+  }
+
+  private async requestOk(
+    model: string,
+    prompt: string,
+    stream: boolean,
+    maxTokens = 4096
+  ): Promise<Response> {
+    return this.requestMessages(model, [{ role: "user", content: prompt }], stream, maxTokens);
   }
 
   async classify(question: string): Promise<QuestionCategory> {
@@ -136,11 +146,39 @@ export class AnthropicProvider implements AIProvider {
   }
 
   private streamMessage(prompt: string, maxTokens?: number): AsyncIterable<string> {
-    return withStreamFallback(MODELS.map((model) => () => this.streamWithModel(model, prompt, maxTokens)));
+    return this.streamWithMessages(
+      MODELS.map((model) => ({ model, messages: [{ role: "user", content: prompt }] })),
+      maxTokens
+    );
   }
 
-  private async *streamWithModel(model: string, prompt: string, maxTokens?: number): AsyncIterable<string> {
-    const res = await this.requestOk(model, prompt, true, maxTokens);
+  // Practice turns: Anthropic vision blocks (base64 source) when screenshots are attached.
+  streamPracticeTurn(prompt: string, images: PracticeImage[]): AsyncIterable<string> {
+    const content: unknown[] = [{ type: "text", text: prompt }];
+    for (const image of images) {
+      content.push({ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.data } });
+    }
+    return this.streamWithMessages(
+      MODELS.map((model) => ({ model, messages: [{ role: "user", content }] })),
+      undefined
+    );
+  }
+
+  private streamWithMessages(
+    attempts: Array<{ model: string; messages: Array<{ role: string; content: unknown }> }>,
+    maxTokens?: number
+  ): AsyncIterable<string> {
+    return withStreamFallback(
+      attempts.map(({ model, messages }) => () => this.streamWithMessagesOnce(model, messages, maxTokens))
+    );
+  }
+
+  private async *streamWithMessagesOnce(
+    model: string,
+    messages: Array<{ role: string; content: unknown }>,
+    maxTokens?: number
+  ): AsyncIterable<string> {
+    const res = await this.requestMessages(model, messages, true, maxTokens);
     for await (const data of sseEvents(res)) {
       const json = JSON.parse(data);
       if (json.type === "content_block_delta" && json.delta?.type === "text_delta") yield json.delta.text;

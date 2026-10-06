@@ -175,6 +175,7 @@ export function wipeAllData() {
     DELETE FROM interview_coach_questions;
     DELETE FROM interview_coach_context;
     DELETE FROM interview_coach_sessions;
+    DELETE FROM practice_sessions;
   `);
 }
 
@@ -712,3 +713,68 @@ export function cancelCoachSession(sessionId: number): void {
     `UPDATE interview_coach_sessions SET status = 'cancelled', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
   ).run(sessionId);
 }
+
+// ---------------------------------------------------------------------------
+// Practice Sessions (Multi-tab interview practice session persistence)
+// ---------------------------------------------------------------------------
+
+export interface PracticeSessionRow {
+  id: string;
+  title: string;
+  depth: string;
+  draft_text: string;
+  turns_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listPracticeSessions(): PracticeSessionRow[] {
+  return db
+    .prepare(`SELECT * FROM practice_sessions ORDER BY updated_at DESC`)
+    .all() as unknown as PracticeSessionRow[];
+}
+
+export function getPracticeSession(id: string): PracticeSessionRow | null {
+  const row = db.prepare(`SELECT * FROM practice_sessions WHERE id = ?`).get(id) as
+    | PracticeSessionRow
+    | undefined;
+  return row ?? null;
+}
+
+export function savePracticeSession(session: {
+  id: string;
+  title: string;
+  depth: string;
+  draft_text: string;
+  turns_json: string;
+}): void {
+  db.prepare(
+    `INSERT INTO practice_sessions (id, title, depth, draft_text, turns_json, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET
+       title = excluded.title,
+       depth = excluded.depth,
+       draft_text = excluded.draft_text,
+       turns_json = excluded.turns_json,
+       updated_at = datetime('now')`
+  ).run(session.id, session.title, session.depth, session.draft_text, session.turns_json);
+}
+
+export function deletePracticeSession(id: string): void {
+  db.prepare(`DELETE FROM practice_sessions WHERE id = ?`).run(id);
+}
+
+export function renamePracticeSession(id: string, title: string): void {
+  db.prepare(
+    `UPDATE practice_sessions SET title = ?, updated_at = datetime('now') WHERE id = ?`
+  ).run(title, id);
+}
+
+export function getActivePracticeSessionId(): string | null {
+  return getSetting("active_practice_session_id") ?? null;
+}
+
+export function setActivePracticeSessionId(id: string): void {
+  setSetting("active_practice_session_id", id);
+}
+

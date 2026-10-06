@@ -6,6 +6,7 @@ import type {
   QuestionCategory,
   InterviewPrepItem,
   CoachSpeed,
+  PracticeImage,
 } from "./AIProvider";
 import {
   CATEGORIES,
@@ -165,6 +166,14 @@ export class NvidiaProvider implements AIProvider {
     return withStreamFallback(
       this.coachModels(speed).map((model) => () => this.streamWithModel(model, prompt, maxOutputTokens))
     );
+  }
+
+  // Practice turns: OpenAI-style vision content parts (data-URI images). The default
+  // nemotron chain is text-only — with screenshots attached, pin a vision model via
+  // NVIDIA_MODEL (e.g. a llama-3.2-vision entry) or the provider will return a clear
+  // model-rejection error.
+  streamPracticeTurn(prompt: string, _images: PracticeImage[]): AsyncIterable<string> {
+    return this.streamChat(prompt);
   }
 
   private streamChat(prompt: string, maxTokens?: number): AsyncIterable<string> {

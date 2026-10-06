@@ -76,6 +76,14 @@ export interface MeetingNoteSummary {
   actionItems: string[];
 }
 
+// Interview Practice workspace: a pasted question (with optional screenshots) answered
+// in a multi-turn tutoring conversation. History is embedded in the prompt by the caller;
+// providers only need to attach the images to the current user turn.
+export interface PracticeImage {
+  mimeType: string; // e.g. "image/png"
+  data: string; // base64 payload, no data: prefix
+}
+
 // Interview Coach speed grades — providers map these to their own model chains, so no
 // model names leak into feature code. Canonical definition lives in interviewCoach.ts
 // (kept import-free for the test suite); re-exported here for callers of the interface.
@@ -120,4 +128,7 @@ export interface AIProvider {
   // tight); providers apply it where the API supports it.
   completeCoach(prompt: string, speed: CoachSpeed, maxOutputTokens: number): Promise<string>;
   streamCoach(prompt: string, speed: CoachSpeed, maxOutputTokens: number): AsyncIterable<string>;
+  // Interview Practice workspace: one tutoring turn. `prompt` already contains the
+  // conversation history and the response-structure rules; images attach to the turn.
+  streamPracticeTurn(prompt: string, images: PracticeImage[]): AsyncIterable<string>;
 }

@@ -254,3 +254,98 @@ export function parseInterviewPrep(raw: string): InterviewPrepItem[] {
       return { question: line.slice(0, idx).trim(), angle: line.slice(idx + 3).trim() };
     });
 }
+
+// ---------------------------------------------------------------------------
+// Interview Practice workspace — pasted question + screenshots, multi-turn tutoring.
+// ---------------------------------------------------------------------------
+
+export interface PracticeTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+// Conversation context: recent turns only, so follow-ups stay focused and prompts
+// stay bounded no matter how long a session runs.
+export function trimPracticeHistory(history: PracticeTurn[], maxTurns = 12): PracticeTurn[] {
+  return history.slice(-maxTurns);
+}
+
+export function practiceSessionTitle(text: string, hasImages: boolean): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t) return t.slice(0, 60);
+  return hasImages ? "Screenshot question" : "Practice question";
+}
+
+const PRACTICE_CODING_STRUCTURE = `### Understanding
+<restate the problem in your own words — inputs, outputs, constraints>
+### Approach
+<the algorithm/strategy and why it fits>
+### Solution
+<working code in the language the question asks for, in a fenced code block with the language tag>
+### Walkthrough
+<trace the solution through one of the provided examples, step by step>
+### Complexity
+Time: <time complexity with one-line justification>
+Space: <space complexity with one-line justification>
+### Edge Cases
+- <edge case and how the solution handles it>
+### Common Mistakes
+- <a mistake candidates typically make on this problem>
+### Follow-ups
+- <the variation an interviewer would ask next>`;
+
+const PRACTICE_CONCEPT_STRUCTURE = `### Direct Answer
+<the answer in 2-4 sentences>
+### Explanation
+<the simple explanation — the intuition before the jargon>
+### Technical Details
+<the precise mechanics, terms, and trade-offs>
+### Example
+<concrete example demonstrating the idea>
+### Interview-Ready Answer
+<how to say this out loud in an interview, first person>
+### Follow-ups
+- <the question an interviewer would ask next>`;
+
+const clip = (str: string, maxLen: number): string =>
+  str.length > maxLen ? str.slice(0, maxLen) + "..." : str;
+
+export function practiceTutorPrompt(history: PracticeTurn[], depth: AnswerDepth): string {
+  const transcript = history
+    .map((m) => `${m.role === "user" ? "Candidate" : "Tutor"}: ${clip(m.text, 4000)}`)
+    .join("\n\n");
+  return `You are an expert interview-prep tutor. The candidate pastes interview or coding questions (text, problem descriptions, error messages, code, or screenshots) and wants to understand them deeply — accuracy and genuine understanding matter more than a fast, confident-sounding answer.
+
+Rules:
+- If screenshots are attached, read the question from them first and treat that as part of the candidate's message.
+- If the question is incomplete or ambiguous, do NOT invent requirements, constraints, or examples. Solve what is given, then add a "### Missing Information" section listing exactly what is missing or assumed.
+- For coding/algorithm questions use this structure:
+${PRACTICE_CODING_STRUCTURE}
+- For conceptual questions use this structure:
+${PRACTICE_CONCEPT_STRUCTURE}
+- If the question states a preferred language, solve in that language; otherwise pick the most natural one and say why in one line.
+- Later turns are follow-ups about the same problem — use the conversation above as context and keep earlier sections available by reference instead of repeating them.
+- Keep the "### " section headers exactly as written; depth for this answer: "${depth}".
+
+Conversation so far (most recent last):
+${transcript || "(this is the first message)"}`;
+}
+
+// Ordered sections parsed from a tutor response, preserving code fences verbatim.
+// Pure and shared: the renderer renders these progressively while streaming.
+export interface PracticeSection {
+  title: string;
+  body: string;
+}
+
+export function parsePracticeSections(raw: string): PracticeSection[] {
+  const parts = raw.split(/^### +(.+?) *$/m);
+  const sections: PracticeSection[] = [];
+  // Text before the first header is the model's preamble — show it as an untitled note
+  // only when it carries real content.
+  if (parts[0]?.trim()) sections.push({ title: "", body: parts[0].trim() });
+  for (let i = 1; i < parts.length; i += 2) {
+    sections.push({ title: parts[i].trim(), body: (parts[i + 1] ?? "").trim() });
+  }
+  return sections;
+}

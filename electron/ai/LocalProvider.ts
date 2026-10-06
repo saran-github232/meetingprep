@@ -6,6 +6,7 @@ import type {
   QuestionCategory,
   InterviewPrepItem,
   CoachSpeed,
+  PracticeImage,
 } from "./AIProvider";
 import {
   CATEGORIES,
@@ -220,5 +221,9 @@ export class LocalProvider implements AIProvider {
 
   streamCoach(prompt: string, _speed: CoachSpeed, maxOutputTokens: number): AsyncIterable<string> {
     return this.streamChat(prompt, maxOutputTokens);
+  }
+
+  streamPracticeTurn(prompt: string, _images: PracticeImage[]): AsyncIterable<string> {
+    return this.streamChat(prompt);
   }
 }

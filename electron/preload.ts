@@ -17,6 +17,7 @@ import type {
   CoachSessionStats,
   AIProviderName,
   Plan,
+  PracticeSessionRow,
 } from "./db/db";
 import type { ShieldCapability } from "./stealth";
 import type { LocalModelsInfo } from "./ai/LocalProvider";
@@ -244,6 +245,16 @@ const api = {
         onDone,
         onError
       ),
+    // Interview Practice workspace: multi-turn tutoring with optional screenshot images.
+    // images: array of { mimeType, data } — data is base64 WITHOUT the "data:<mime>;" prefix.
+    streamPracticeTurn: (
+      prompt: string,
+      images: { mimeType: string; data: string }[],
+      onChunk: (chunk: string) => void,
+      onDone: () => void,
+      onError: (message: string) => void
+    ) => streamChannel("ai:streamPracticeTurn", [prompt, images], onChunk, onDone, onError),
+
   },
   export: {
     markdown: (content: string, suggestedName: string): Promise<boolean> =>
@@ -278,6 +289,16 @@ const api = {
   plan: {
     get: (): Promise<Plan> => ipcRenderer.invoke("plan:get"),
     set: (plan: Plan): Promise<void> => ipcRenderer.invoke("plan:set", plan),
+  },
+  practice: {
+    listSessions: (): Promise<PracticeSessionRow[]> => ipcRenderer.invoke("practice:listSessions"),
+    getSession: (id: string): Promise<PracticeSessionRow | null> => ipcRenderer.invoke("practice:getSession", id),
+    saveSession: (session: { id: string; title: string; depth: string; draft_text: string; turns_json: string }): Promise<void> =>
+      ipcRenderer.invoke("practice:saveSession", session),
+    deleteSession: (id: string): Promise<void> => ipcRenderer.invoke("practice:deleteSession", id),
+    renameSession: (id: string, title: string): Promise<void> => ipcRenderer.invoke("practice:renameSession", id, title),
+    getActiveSessionId: (): Promise<string | null> => ipcRenderer.invoke("practice:getActiveSessionId"),
+    setActiveSessionId: (id: string): Promise<void> => ipcRenderer.invoke("practice:setActiveSessionId", id),
   },
 };
 

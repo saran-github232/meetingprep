@@ -122,3 +122,14 @@ CREATE TABLE IF NOT EXISTS interview_coach_feedback (
   feedback_encrypted TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS practice_sessions (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  depth TEXT NOT NULL DEFAULT 'moderate',
+  draft_text TEXT NOT NULL DEFAULT '',
+  turns_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_practice_sessions_updated ON practice_sessions(updated_at);
