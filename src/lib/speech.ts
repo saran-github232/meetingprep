@@ -50,14 +50,20 @@ function recognitionCtor(): SpeechRecognitionCtor | undefined {
  * the callback can change without re-arming the recognizer); interim text is exposed
  * separately for display. Chromium ends the service after silence, so listening
  * auto-restarts until `stop()` is called.
+ *
+ * `lang` (BCP-47, e.g. "te-IN") picks the recognition language; it defaults to the
+ * system language. Changing it only takes effect on the next `start()` — the
+ * recognizer is (re)created per session, which is what makes the switch reliable.
  */
-export function useDictation(onFinal: (text: string) => void) {
+export function useDictation(onFinal: (text: string) => void, lang?: string) {
   const supported = typeof window !== "undefined" && !!recognitionCtor();
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState("");
   const [error, setError] = useState<string | null>(null);
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
+  const langRef = useRef(lang);
+  langRef.current = lang;
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const wantListeningRef = useRef(false);
   const networkErrorCountRef = useRef(0);
@@ -88,7 +94,7 @@ export function useDictation(onFinal: (text: string) => void) {
     const recognition = new Ctor();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = navigator.language || "en-US";
+    recognition.lang = langRef.current || navigator.language || "en-US";
 
     recognition.onresult = (event) => {
       let interimText = "";

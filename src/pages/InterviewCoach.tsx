@@ -3,11 +3,16 @@ import type { InterviewCoachContext, CoachFeedback, CoachSpeed } from "../../ele
 import {
   appendTranscriptSegment,
   COACH_INTERVIEW_TYPES,
+  detectQuestionLanguage,
+  detectRoleProfile,
+  languageName,
   parseCoachFeedback,
   parsePartialCoachFeedback,
   setupWarnings,
   validateCoachSetup,
+  ROLE_PROFILE_LABELS,
   type CoachInterviewType,
+  type CoachLangPref,
   type CoachResponseLength,
   type CoachSetup,
   type CoachVisualState,
@@ -16,8 +21,9 @@ import type { CoachQaRow, CoachSessionBundle, CoachSessionRow } from "../../elec
 import { Section, BulletSection } from "../components/AnswerSections";
 import CoachOrb from "../components/CoachOrb";
 import { MicButton, InterimLine } from "../components/MicButton";
-import { IconCheck, IconFile, IconPlus, IconVolume } from "../components/icons";
+import { IconCheck, IconFile, IconPlus, IconShield, IconVolume } from "../components/icons";
 import { useDictation, useSpeaker } from "../lib/speech";
+import { useStealth } from "../lib/useStealth";
 import { EXPERIENCE_LEVELS, PREP_SETTING_KEYS } from "../lib/interview";
 
 type Stage = "boot" | "setup" | "analyzing" | "studio";
@@ -53,7 +59,24 @@ const EMPTY_SETUP: CoachSetup = {
   techStack: "",
   interviewType: "mixed",
   notes: "",
+  preferredLanguage: "auto",
 };
+
+const LANG_PREFS: { id: CoachLangPref; label: string }[] = [
+  { id: "auto", label: "Auto" },
+  { id: "en", label: "English" },
+  { id: "te", label: "తెలుగు Telugu" },
+  { id: "hi", label: "हिन्दी Hindi" },
+];
+
+// Studio language options add the explicit mixed mode (natural Telugu-English answers).
+const LANG_OVERRIDES: { id: "auto" | "en" | "te" | "hi" | "te-en"; label: string }[] = [
+  { id: "auto", label: "Auto" },
+  { id: "en", label: "English" },
+  { id: "te", label: "తెలుగు" },
+  { id: "hi", label: "हिन्दी" },
+  { id: "te-en", label: "Telugu-English" },
+];
 
 function Chip({
   active,
@@ -104,10 +127,39 @@ function SetupStage({
   const [resumeMode, setResumeMode] = useState<"saved" | "paste" | "none">(savedResume ? "saved" : "none");
   const [pastedResume, setPastedResume] = useState("");
   const [importing, setImporting] = useState(false);
+  const [showDump, setShowDump] = useState(false);
+  const [dumpText, setDumpText] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
 
   const problems = validateCoachSetup(setup);
   const chosenResume = resumeMode === "saved" ? savedResume : resumeMode === "paste" ? pastedResume : null;
   const warnings = setupWarnings(setup, chosenResume);
+  const detectedProfile = setup.jobDescription.trim() ? detectRoleProfile(setup.jobDescription) : null;
+
+  async function parseDump() {
+    if (!dumpText.trim()) return;
+    setParsing(true);
+    setParseError(null);
+    try {
+      const parsed = await window.api.coach.parseJobPosting(dumpText);
+      setSetup({
+        jobTitle: parsed.jobTitle || setup.jobTitle,
+        company: parsed.company || setup.company,
+        jobDescription: parsed.jobDescription || setup.jobDescription,
+        responsibilities: parsed.responsibilities || setup.responsibilities,
+        requiredSkills: parsed.requiredSkills || setup.requiredSkills,
+        preferredSkills: parsed.preferredSkills || setup.preferredSkills,
+        experienceLevel: parsed.experienceLevel || setup.experienceLevel,
+        interviewType: (parsed.interviewType || setup.interviewType) as CoachInterviewType,
+      });
+      setShowDump(false);
+    } catch (err) {
+      setParseError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setParsing(false);
+    }
+  }
 
   async function importPdf() {
     setImporting(true);
@@ -211,6 +263,38 @@ function SetupStage({
             <h2 className="text-[15px] font-semibold">Job information</h2>
             <p className="mt-1 text-[13px] text-muted">Paste the actual posting — the more specific, the better the prep.</p>
           </div>
+
+          {/* auto-fill from a raw posting dump */}
+          <div className="rounded-xl border border-hairline bg-raised/40 p-3.5">
+            <button
+              type="button"
+              onClick={() => setShowDump((v) => !v)}
+              className="flex w-full items-center justify-between text-left"
+              aria-expanded={showDump}
+            >
+              <span className="text-[13px] font-medium">Auto-fill from a raw job posting</span>
+              <span className="text-[11.5px] text-faint">{showDump ? "Hide" : "Paste the whole posting — the coach divides it for you"}</span>
+            </button>
+            {showDump && (
+              <div className="mt-3 space-y-2">
+                <textarea
+                  className="textarea"
+                  rows={8}
+                  placeholder="Paste the ENTIRE job posting here — title, about-the-role, responsibilities, requirements, nice-to-haves, everything. The coach splits it into the fields below automatically."
+                  value={dumpText}
+                  onChange={(e) => setDumpText(e.target.value)}
+                />
+                <div className="flex items-center gap-2.5">
+                  <button onClick={parseDump} disabled={parsing || dumpText.trim().length < 40} className="btn-primary btn-xs">
+                    {parsing ? "Dividing the posting…" : "Auto-fill fields"}
+                  </button>
+                  <span className="text-[11.5px] text-faint">Nothing leaves this device except the posting text, sent to your AI provider for parsing.</span>
+                </div>
+                {parseError && <p className="error-box">{parseError}</p>}
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="field-label" htmlFor="coach-title">Job title</label>
@@ -339,6 +423,33 @@ function SetupStage({
               How long the coach's suggested answers should be. Changeable anytime in Settings.
             </p>
           </div>
+          <div>
+            <label className="field-label">Preferred language</label>
+            <div className="flex flex-wrap gap-2">
+              {LANG_PREFS.map((l) => (
+                <Chip
+                  key={l.id}
+                  active={(setup.preferredLanguage ?? "auto") === l.id}
+                  onClick={() => setSetup({ preferredLanguage: l.id })}
+                >
+                  {l.label}
+                </Chip>
+              ))}
+            </div>
+            <p className="mt-1 text-[11.5px] text-faint">
+              Auto: questions default to English and coaching mirrors the language you answer in
+              (Telugu, Hindi, or mixed Telugu-English). A manual choice locks questions and coaching
+              to that language. Recognition language follows the same selector.
+            </p>
+          </div>
+          {detectedProfile === "telugu_transcription" && (
+            <p className="ok-text flex items-center gap-1.5 text-[13px]">
+              <IconCheck size={14} />
+              Detected role profile: {ROLE_PROFILE_LABELS.telugu_transcription} — questions will cover
+              transcription, alignment, punctuation, timestamps, code-switching, QA, and related
+              language-data topics from your job description.
+            </p>
+          )}
           <div>
             <label className="field-label" htmlFor="coach-notes">Anything else the coach should know <span className="normal-case text-faint">(optional)</span></label>
             <textarea
@@ -517,7 +628,28 @@ function StudioStage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ownQuestion, setOwnQuestion] = useState("");
+  // Language override for this session's answers ("auto" mirrors the question language).
+  const [answerLang, setAnswerLang] = useState<"auto" | "en" | "te" | "hi" | "te-en">(
+    (session.preferred_language as "auto" | "en" | "te" | "hi") === "auto" || !session.preferred_language
+      ? "auto"
+      : (session.preferred_language as "en" | "te" | "hi")
+  );
+  const [providerName, setProviderName] = useState<string>("…");
+  const { stealth } = useStealth();
   const stopStream = useRef<(() => void) | null>(null);
+
+  // Speech recognition language follows the same selector. There is no true "mixed"
+  // recognizer — for Telugu and mixed sessions the Telugu (te-IN) recognizer is used,
+  // which is how Telugu-English code-switching is actually transcribed in practice.
+  const recognitionLang = useMemo(() => {
+    if (answerLang === "te" || answerLang === "te-en") return "te-IN";
+    if (answerLang === "hi") return "hi-IN";
+    return navigator.language || "en-US";
+  }, [answerLang]);
+
+  // Detected language of the current question — shown next to the selector and used for
+  // the auto mic choice so the recognizer matches the language you're about to answer in.
+  const questionLang = current ? detectQuestionLanguage(current.question) : null;
 
   const {
     supported: dictationSupported,
@@ -529,7 +661,7 @@ function StudioStage({
   } = useDictation((text) => {
     setAnswer((prev) => appendTranscriptSegment(prev, text));
     setTranscriptLog((prev) => [...prev.slice(-40), text]);
-  });
+  }, recognitionLang);
   const { supported: speakerSupported, speaking, speak, stopSpeaking } = useSpeaker();
 
   const visualState: CoachVisualState = streaming
@@ -539,6 +671,44 @@ function StudioStage({
       : current
         ? "ready"
         : "idle";
+
+  // Provider label for the privacy panel: an explicit coach preference wins, otherwise
+  // the app's active provider (which leads the fallback chain).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [active, pref] = await Promise.all([
+          window.api.ai.getActiveProvider(),
+          window.api.settings.get("coach_provider"),
+        ]);
+        if (cancelled) return;
+        const activeLabel =
+          { gemini: "Gemini", openai: "OpenAI", anthropic: "Anthropic", nvidia: "NVIDIA NIM", local: "Local (Ollama)" }[
+            active
+          ] ?? active;
+        setProviderName(pref === "gemini" ? "Gemini" : pref === "nvidia" ? "NVIDIA NIM" : activeLabel);
+      } catch {
+        if (!cancelled) setProviderName("Not configured");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Switching the recognition language restarts the recognizer so the change takes
+  // effect immediately (the Web Speech recognizer binds its language at start).
+  const recognitionLangRef = useRef(recognitionLang);
+  useEffect(() => {
+    if (recognitionLangRef.current === recognitionLang) return;
+    recognitionLangRef.current = recognitionLang;
+    if (listening) {
+      stopDictation();
+      startDictation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recognitionLang]);
 
   useEffect(
     () => () => {
@@ -573,7 +743,12 @@ function StudioStage({
     setBusy(true);
     setError(null);
     try {
-      const next = await window.api.coach.nextQuestion(session.id, source, userQuestion);
+      const next = await window.api.coach.nextQuestion(
+        session.id,
+        source,
+        userQuestion,
+        answerLang === "auto" ? null : answerLang
+      );
       setCurrent({ id: next.id, question: next.question, source });
       setAnswer("");
       setTranscriptLog([]);
@@ -602,6 +777,7 @@ function StudioStage({
       current.id,
       current.question,
       answer,
+      answerLang === "auto" ? null : answerLang,
       (chunk) => {
         full += chunk;
         setStreamText(full);
@@ -633,6 +809,17 @@ function StudioStage({
             {session.experience_level ? ` · ${session.experience_level}` : ""} · {answeredCount} answered
           </p>
         </div>
+        <select
+          className="input w-auto py-1.5 text-[12.5px]"
+          value={answerLang}
+          onChange={(e) => setAnswerLang(e.target.value as typeof answerLang)}
+          aria-label="Answer language"
+          title="Language for questions, transcription, and coaching. Auto mirrors the question's language."
+        >
+          {LANG_OVERRIDES.map((l) => (
+            <option key={l.id} value={l.id}>{l.label}</option>
+          ))}
+        </select>
         <span className="badge-teal capitalize">{speed} mode</span>
         {showLatency && metrics && (
           <span className="badge border-hairline bg-surface/60 text-faint">
@@ -816,7 +1003,46 @@ function StudioStage({
 
         {/* side column */}
         <div className="space-y-4">
+          {/* privacy status — the four indicators the practice flow depends on */}
+          <div className="card space-y-2.5 p-4">
+            <div className="flex items-center gap-2">
+              <IconShield size={15} className="text-accent" />
+              <span className="text-[13px] font-semibold">Private Practice Mode</span>
+              <span className="ml-auto h-1.5 w-1.5 animate-pulse-soft rounded-full bg-accent" />
+            </div>
+            <div className="space-y-1.5 text-[12.5px]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted">Capture Shield</span>
+                <span className={stealth ? "badge-teal" : "badge border-hairline bg-surface/60 text-faint"}>
+                  {stealth ? "ON" : "OFF"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted">Microphone</span>
+                <span className={listening ? "badge-teal" : "badge border-hairline bg-surface/60 text-faint"}>
+                  {listening ? "ON" : "OFF"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted">AI Provider</span>
+                <span className="badge border-hairline bg-surface/60 text-faint">{providerName}</span>
+              </div>
+            </div>
+            <p className="text-[11px] leading-relaxed text-faint">
+              Disclosed practice in this window only. Nothing is injected into Zoom, Teams, Meet, or
+              any other app, and this window is not "undetectable" — the shield only excludes it from
+              supported screen capture on your OS.
+            </p>
+          </div>
+
           <CoachOrb state={visualState} className="aspect-square w-full" />
+
+          {questionLang && (
+            <p className="px-1 text-[11.5px] text-faint">
+              Question language: {languageName(questionLang)} — coaching and dictation follow it when
+              the selector is on Auto.
+            </p>
+          )}
 
           {context?.analysis && <AnalysisCard analysis={context.analysis} />}
 

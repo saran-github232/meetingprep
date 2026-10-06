@@ -145,15 +145,21 @@ Conventions above). To actually *see* a UI change rather than just typecheck it:
   saves in a marked base64 mode (`plain:v1:`) when `safeStorage` is unavailable
   instead of throwing; that throw used to make key saves silently fail.
 - `electron/ai/interviewCoach.ts` — Interview Coach pure logic (prompts, parsers,
-  speed-graded trimming, session memory, `orderNamesForCoach`), import-free like
+  speed-graded trimming, session memory, `orderNamesForCoach`, script-range language
+  detection for English/Telugu/Hindi/mixed, the Telugu transcription & alignment
+  role profile + topic bank, and raw job-posting parsing), import-free like
   `nvidiaWire.ts` so tests import it directly. Coach speed→model chains live in
   the providers themselves (Gemini `coachModels`, `nvidiaCoachModels` in
   nvidiaWire.ts) — don't hardcode model names in feature code or handlers. The
   coach IPC persists answers/feedback only after the stream completes cleanly,
   and the one-time resume/JD analysis is cached in the session's context row;
-  nothing should re-send the full resume per question. The coach is
-  practice-only by design (see the ethical-boundary section above): no path may
-  feed answers during a real call.
+  nothing should re-send the full resume per question. Response language follows
+  the question (detection) unless the session/selector sets an explicit language,
+  and the "### " section headers stay English in every language — the parsers
+  key off them. The coach is practice-only by design (see the ethical-boundary
+  section above): no path may feed answers during a real call, and the studio's
+  privacy panel must keep its exact claims (shield excludes from supported
+  capture; never "undetectable"; no injection into other apps).
 
 ## Known open thread (as of this writing — check if still relevant before acting)
 

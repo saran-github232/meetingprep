@@ -7,10 +7,16 @@ import {
   coachFeedbackPrompt,
   coachMaxTokens,
   coachQuestionPrompt,
+  detectQuestionLanguage,
   isUsefulAnalysis,
+  jobPostingParsePrompt,
   parseCoachFeedback,
   parseCoachQuestion,
   parseInterviewCoachContext,
+  parseJobPosting,
+  detectRoleProfile,
+  type CoachLang,
+  type CoachLangPref,
   type CoachProviderPreference,
   type CoachResponseLength,
   type CoachSessionMemoryItem,
@@ -354,8 +360,30 @@ function coachSetupFor(sessionId: number): { setup: CoachSetup; context: NonNull
       techStack: context.techStack,
       interviewType: session.interview_type as CoachSetup["interviewType"],
       notes: context.notes,
+      preferredLanguage: (session.preferred_language as CoachLangPref) || "auto",
+      roleProfile: (session.role_profile as CoachSetup["roleProfile"]) || "general",
     },
   };
+}
+
+// Per-request language override from the studio's language selector (null = use the
+// session's preferred-language rules). Validated against the known set.
+function coachLangOverride(value: unknown): CoachLang | null {
+  return value === "en" || value === "te" || value === "hi" || value === "te-en" ? value : null;
+}
+
+// Question language: an explicit preference wins; "auto" defaults to English (the
+// JD-driven profile already surfaces Telugu-domain topics regardless of language).
+function coachQuestionLang(setup: CoachSetup): CoachLang {
+  return setup.preferredLanguage && setup.preferredLanguage !== "auto" ? setup.preferredLanguage : "en";
+}
+
+// Feedback language mirrors the question/answer (the spec's "answer in the language of
+// the question"); a per-request or session-level explicit preference overrides detection.
+function coachFeedbackLang(setup: CoachSetup, question: string, answer: string, override?: CoachLang | null): CoachLang {
+  if (override) return override;
+  if (setup.preferredLanguage && setup.preferredLanguage !== "auto") return setup.preferredLanguage;
+  return detectQuestionLanguage(`${question}\n${answer}`);
 }
 
 // Session memory: recent answered questions (answer excerpt + the first coach improvement)
@@ -393,11 +421,19 @@ function registerCoachHandlers(deps: {
       }
     ) => {
       const s = input.setup;
+      // Role profile: explicit choice wins; otherwise detect from the job description
+      // (e.g. a transcription/alignment posting flips on the Telugu language-data profile).
+      const profile =
+        s.roleProfile === "telugu_transcription" || s.roleProfile === "general"
+          ? s.roleProfile
+          : detectRoleProfile(s.jobDescription);
       return db.createCoachSession({
         jobTitle: s.jobTitle.trim(),
         company: s.company.trim(),
         interviewType: s.interviewType,
         experienceLevel: s.experienceLevel,
+        preferredLanguage: s.preferredLanguage === "en" || s.preferredLanguage === "te" || s.preferredLanguage === "hi" ? s.preferredLanguage : "auto",
+        roleProfile: profile,
         jobDescription: s.jobDescription.trim(),
         resume: input.resume?.trim() ? input.resume : null,
         requiredSkills: s.requiredSkills.trim(),
@@ -450,7 +486,8 @@ ipcMain.handle(
     _e,
     sessionId: number,
     source: "ai" | "user",
-    userQuestion?: string
+    userQuestion?: string,
+    langOverride?: CoachLang | null
   ): Promise<{ id: number; question: string }> => {
     if (source === "user") {
       const question = (userQuestion ?? "").trim();
@@ -462,18 +499,20 @@ ipcMain.handle(
     if (!parts) throw new Error("This Interview Coach session no longer exists.");
     const prefs = coachPrefs();
     const asked = db.listCoachQuestions(sessionId).map((q) => q.question);
+    const lang = coachLangOverride(langOverride) ?? coachQuestionLang(parts.setup);
     const prompt = coachQuestionPrompt({
       setup: parts.setup,
       ctx: parts.context.analysis,
       speed: prefs.speed,
       askedQuestions: asked,
+      language: lang,
     });
     const providers = providersForCoach();
     requireProviders(providers);
     let lastErr: unknown;
     for (const provider of providers) {
       try {
-        const raw = await provider.completeCoach(prompt, prefs.speed, 200);
+        const raw = await provider.completeCoach(prompt, prefs.speed, coachMaxTokens(prefs.speed, "medium", lang));
         const question = parseCoachQuestion(raw);
         if (!question) throw new Error("The question came back empty — try again.");
         const id = db.addCoachQuestion(sessionId, question, "ai");
@@ -486,17 +525,54 @@ ipcMain.handle(
   }
 );
 
+// Raw job-posting dump → structured wizard fields (the user pastes the whole posting;
+// the AI divides it into title/company/description/skills so setup takes seconds).
+ipcMain.handle("coach:parseJobPosting", async (_e, rawPosting: string) => {
+  const text = (rawPosting ?? "").trim();
+  if (text.length < 40) throw new Error("Paste the full job posting first — there isn't enough text to parse yet.");
+  const prefs = coachPrefs();
+  const providers = providersForCoach();
+  requireProviders(providers);
+  let lastErr: unknown;
+  for (const provider of providers) {
+    try {
+      const raw = await provider.completeCoach(
+        jobPostingParsePrompt(text),
+        "fast",
+        coachMaxTokens("fast", "detailed", "en")
+      );
+      const parsed = parseJobPosting(raw);
+      if (!parsed.jobTitle && !parsed.jobDescription) {
+        throw new Error("Couldn't find a title or description in that posting — try again or fill the fields manually.");
+      }
+      return parsed;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw new Error(friendlyErrorMessage(lastErr));
+});
+
 // Streams coach feedback for an answer and persists answer + feedback once the stream
 // completes cleanly (a failed stream persists nothing — the user just retries).
 ipcMain.on(
   "coach:streamFeedback",
-  async (event, requestId: string, sessionId: number, questionId: number, question: string, answer: string) => {
+  async (
+    event,
+    requestId: string,
+    sessionId: number,
+    questionId: number,
+    question: string,
+    answer: string,
+    langOverride: CoachLang | null
+  ) => {
     const prefs = coachPrefs();
     const parts = coachSetupFor(sessionId);
     if (!parts) {
       event.sender.send(`ai:error:${requestId}`, "This Interview Coach session no longer exists.");
       return;
     }
+    const lang = coachFeedbackLang(parts.setup, question, answer, coachLangOverride(langOverride));
     const prompt = coachFeedbackPrompt({
       question,
       answer,
@@ -506,13 +582,14 @@ ipcMain.on(
       sessionMemory: coachMemoryFor(sessionId),
       setup: parts.setup,
       hasResume: !!parts.context.resume?.trim(),
+      language: lang,
     });
     const providers = providersForCoach();
     if (providers.length === 0) {
       event.sender.send(`ai:error:${requestId}`, "AI provider not configured. Add an API key in Settings.");
       return;
     }
-    const maxTokens = coachMaxTokens(prefs.speed, prefs.length);
+    const maxTokens = coachMaxTokens(prefs.speed, prefs.length, lang);
     await runStream(
       event.sender,
       requestId,

@@ -318,6 +318,7 @@ test("coachQuestionPrompt includes prior questions so they aren't repeated", () 
     ctx: null,
     speed: "fast",
     askedQuestions: ["Tell me about your experience with Python and SQL."],
+    language: "en",
   });
   assert.ok(prompt.includes("Tell me about your experience with Python and SQL."));
   assert.ok(/ONE/.test(prompt));

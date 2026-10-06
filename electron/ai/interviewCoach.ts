@@ -17,6 +17,18 @@ export type CoachInterviewType =
   | "system_design"
   | "project"
   | "mixed";
+
+// Language the user prefers for the session. "auto" means questions default to English
+// (or follow the job description) and feedback mirrors the question/answer language.
+export type CoachLangPref = "auto" | "en" | "te" | "hi";
+// Effective language, including the mixed Telugu-English mode that mirrors how the
+// language is actually spoken (English loanwords inside Telugu sentences).
+export type CoachLang = "en" | "te" | "hi" | "te-en";
+
+// Specialized interview profiles. The Telugu transcription/alignment profile steers
+// question generation toward the language-data domain (transcription QA, alignment,
+// annotation, code-switching, …) using the supplied JD and resume for specificity.
+export type CoachRoleProfile = "general" | "telugu_transcription";
 // Which provider Interview Coach prefers — "auto" keeps the app-wide fallback chain.
 export type CoachProviderPreference = "auto" | "gemini" | "nvidia";
 // Drives the point-cloud visualization (CoachOrb) and the state label under it.
@@ -33,6 +45,8 @@ export interface CoachSetup {
   techStack: string;
   interviewType: CoachInterviewType;
   notes: string;
+  preferredLanguage?: CoachLangPref;
+  roleProfile?: CoachRoleProfile;
 }
 
 // The one-time resume/JD analysis. Everything in it must be grounded in the supplied
@@ -176,10 +190,14 @@ export function compactContextForSpeed(
 
 // Output-token ceilings per request — generation stops once sufficient content exists
 // instead of streaming past it. Kept tight on purpose; the coach's sections are short.
-export function coachMaxTokens(speed: CoachSpeed, length: CoachResponseLength): number {
+// Telugu/Hindi (and mixed) scripts tokenize heavier than English, so non-English
+// responses get a multiplier to avoid being cut off mid-sentence.
+const LANG_TOKEN_MULTIPLIER: Record<CoachLang, number> = { en: 1, hi: 1.4, te: 1.4, "te-en": 1.5 };
+
+export function coachMaxTokens(speed: CoachSpeed, length: CoachResponseLength, lang: CoachLang = "en"): number {
   const base = { fast: 480, balanced: 850, quality: 1400 }[speed];
   const bump = { short: -120, medium: 0, detailed: 320 }[length];
-  return Math.max(256, base + bump);
+  return Math.max(256, Math.round((base + bump) * LANG_TOKEN_MULTIPLIER[lang]));
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +302,7 @@ export function coachQuestionPrompt(input: {
   ctx: InterviewCoachContext | null;
   speed: CoachSpeed;
   askedQuestions: string[];
+  language: CoachLang;
 }): string {
   const focus =
     input.setup.interviewType === "mixed"
@@ -291,9 +310,10 @@ export function coachQuestionPrompt(input: {
       : `Stay within the "${input.setup.interviewType}" interview type.`;
   return `You are conducting a disclosed PRACTICE interview — the candidate is rehearsing alone with a coaching app and has asked for the next question.
 ${focus}
+${roleProfileLine(input.setup.roleProfile ?? "general")}
 ${compactContextForSpeed(input.ctx, input.speed)}
-${input.setup.notes.trim() ? `Extra notes from the candidate: ${clip(input.setup.notes, 300)}\n` : ""}
-Ask exactly ONE realistic interview question a real interviewer for this job would ask, tailored to the candidate's background. Do not repeat or trivially rephrase any of these already-asked questions:
+${input.setup.notes.trim() ? `Extra notes from the candidate: ${clip(input.setup.notes, 300)}\n` : ""}Write the question in ${languageName(input.language)}; make it sound like a question a real interviewer for this job would ask out loud.
+Ask exactly ONE realistic interview question tailored to the candidate's background and this job. Do not repeat or trivially rephrase any of these already-asked questions:
 ${input.askedQuestions.slice(-12).map((q) => `- ${clip(q, 160)}`).join("\n") || "(none yet)"}
 
 Respond with ONLY the question text on a single line — no numbering, no labels, no commentary.`;
@@ -351,11 +371,13 @@ export function coachFeedbackPrompt(input: {
   sessionMemory: CoachSessionMemoryItem[];
   setup: CoachSetup;
   hasResume: boolean;
+  language: CoachLang;
 }): string {
   const role = [input.setup.jobTitle, input.setup.company].filter(Boolean).join(" at ");
   const memory = buildSessionMemory(input.sessionMemory);
   return `You are the candidate's interview coach. This is a DISCLOSED practice session — the candidate is rehearsing alone in a coaching app and has just answered a practice question. Evaluate their answer and coach an improved version.
 Ground every suggestion ONLY in the candidate's real background below — never invent experience, employers, projects, or achievements. ${input.hasResume ? "" : "No resume was provided: keep suggestions generic and leave Resume Evidence as 'none'."}
+${languageInstruction(input.language)} The "### " section headers below stay exactly as written (the app parses them); only the content follows the language rule.
 
 Context:
 ${role ? `Target role: ${role}${input.setup.experienceLevel ? ` (${input.setup.experienceLevel})` : ""}` : "Target role: (not specified)"}
@@ -449,3 +471,171 @@ export const COACH_STATE_LABEL: Record<CoachVisualState, string> = {
   generating: "Generating",
   ready: "Ready",
 };
+
+// ---------------------------------------------------------------------------
+// Multilingual support (detection + prompt language rules)
+// ---------------------------------------------------------------------------
+
+// Script-range counting, not translation: Telugu (U+0C00–U+0C7F) and Devanagari
+// (U+0900–U+097F) blocks identify the language; a couple of Latin words alongside
+// Telugu is the normal code-switched pattern, not English.
+export function detectQuestionLanguage(text: string): CoachLang {
+  const te = (text.match(/[\u0C00-\u0C7F]/g) ?? []).length;
+  const hi = (text.match(/[\u0900-\u097F]/g) ?? []).length;
+  const latinWords = (text.match(/[A-Za-z]{2,}/g) ?? []).length;
+  if (te === 0 && hi === 0) return "en";
+  if (te === 0) return "hi";
+  return latinWords >= 2 ? "te-en" : "te";
+}
+
+export function languageName(lang: CoachLang): string {
+  return { en: "English", te: "Telugu", hi: "Hindi", "te-en": "natural mixed Telugu-English" }[lang];
+}
+
+// The single prompt rule that governs response language. Section headers stay in
+// English on purpose — the app's parsers key off them — but all content follows the
+// question's language, and Telugu output must read as actually-spoken language.
+export function languageInstruction(lang: CoachLang): string {
+  if (lang === "en") return "Write all section content in English.";
+  if (lang === "te") {
+    return `Write all section content in Telugu (తెలుగు). Use natural, conversational Telugu exactly as it is actually spoken — English technical terms appear naturally where a real speaker would use them. Never produce a stilted word-for-word translation.`;
+  }
+  if (lang === "hi") {
+    return `Write all section content in Hindi (हिन्दी). Use natural, conversational Hindi — English technical terms appear naturally where a real speaker would use them. Never produce a stilted word-for-word translation.`;
+  }
+  return `Write all section content in natural mixed Telugu-English (Tenglish) — the code-switched style Telugu speakers actually use: Telugu sentence structure with English technical terms and phrases left in English where a real speaker would switch. Never force everything into one script or translate loanwords awkwardly.`;
+}
+
+// ---------------------------------------------------------------------------
+// Role profiles — the Telugu transcription/alignment specialization
+// ---------------------------------------------------------------------------
+
+export const ROLE_PROFILE_LABELS: Record<CoachRoleProfile, string> = {
+  general: "General",
+  telugu_transcription: "Telugu transcription & alignment",
+};
+
+// Keyword scoring against the job description; the profile only changes which questions
+// get asked, never the privacy model or the coaching flow.
+const TELUGU_PROFILE_KEYWORDS = [
+  "telugu",
+  "transcription",
+  "transcribing",
+  "alignment",
+  "closed captioning",
+  "captions",
+  "subtitles",
+  "subtitle edit",
+  "praat",
+  "elan",
+  "court reporting",
+  "speech-to-text",
+  "speech to text",
+  "audio labeling",
+  "data annotation",
+  "annotation",
+  "word-level",
+  "verbatim",
+  "phonetics",
+  "linguistics",
+  "waveform",
+];
+
+export function detectRoleProfile(jobDescription: string): CoachRoleProfile {
+  const jd = jobDescription.toLowerCase();
+  let score = 0;
+  for (const kw of TELUGU_PROFILE_KEYWORDS) {
+    if (jd.includes(kw)) score += kw === "telugu" ? 3 : 1;
+  }
+  return score >= 3 ? "telugu_transcription" : "general";
+}
+
+// The topic bank for the Telugu transcription/alignment profile — every topic the
+// user listed, phrased as question areas. The prompt still grounds each question in
+// the actual JD and resume; this bank only steers the domain.
+const TELUGU_TOPIC_BANK = [
+  "Telugu language, grammar, and vocabulary",
+  "Telugu pronunciation, transliteration, and script details",
+  "transcribing Telugu audio accurately",
+  "verbatim transcription rules (filler words, false starts, repetitions)",
+  "punctuation, capitalization, and speaker labeling conventions",
+  "timestamps and audio segmentation at word/segment level",
+  "handling unclear, mumbled, or overlapping audio",
+  "accents, dialects, and speech nuances",
+  "Telugu-English code-switching in transcripts",
+  "speech-to-text systems and how alignment data improves them",
+  "annotation and data-labeling workflows and tools",
+  "transcription quality assurance, accuracy, and consistency",
+  "confidentiality when handling recorded audio",
+  "AI/speech tools and specialized labeling editors",
+];
+
+function roleProfileLine(profile: CoachRoleProfile): string {
+  if (profile !== "telugu_transcription") return "";
+  return `This is a LANGUAGE-DATA role (Telugu transcription/alignment). Focus each question on ONE of these areas, varying across questions: ${TELUGU_TOPIC_BANK.join("; ")}.`;
+}
+
+// ---------------------------------------------------------------------------
+// Raw job-posting parsing ("dump the whole posting, the coach divides it")
+// ---------------------------------------------------------------------------
+
+export function jobPostingParsePrompt(rawPosting: string): string {
+  return `You are parsing a raw job posting into structured fields for an interview-prep app. Extract ONLY what the posting actually says — never invent employers, skills, or requirements. If a field is not present in the text, leave it empty.
+
+Raw job posting:
+"""${clip(rawPosting, 9000)}"""
+
+Respond in this exact format with these exact section headers:
+### Job Title
+<the job title, e.g. "Audio Transcription & Alignment Specialist">
+### Company
+<the company or organization name>
+### Job Description
+<the core "about the role" description, condensed to its most important 5-10 sentences>
+### Responsibilities
+- <one responsibility per line, condensed from the posting>
+### Required Skills
+- <one required skill/qualification per line>
+### Preferred Skills
+- <one nice-to-have per line>
+### Experience Level
+<one of: Entry-level, Mid-level, Senior, Lead/Staff — best match for the posting, or empty>
+### Interview Type
+<one of: technical, behavioral, hr, coding, system_design, project, mixed — best fit for this role>`;
+}
+
+export interface ParsedJobPosting {
+  jobTitle: string;
+  company: string;
+  jobDescription: string;
+  responsibilities: string;
+  requiredSkills: string;
+  preferredSkills: string;
+  experienceLevel: string;
+  interviewType: CoachInterviewType | "";
+}
+
+const VALID_COACH_TYPES: CoachInterviewType[] = [
+  "technical",
+  "behavioral",
+  "hr",
+  "coding",
+  "system_design",
+  "project",
+  "mixed",
+];
+
+export function parseJobPosting(raw: string): ParsedJobPosting {
+  const s = splitSections(raw);
+  const type = s["interview type"]?.trim().toLowerCase().replace(/[^a-z_]/g, "");
+  return {
+    jobTitle: s["job title"] ?? "",
+    company: s["company"] ?? "",
+    jobDescription: s["job description"] ?? "",
+    responsibilities: bullets(s["responsibilities"], 12).join("\n"),
+    requiredSkills: bullets(s["required skills"], 12).join("\n"),
+    preferredSkills: bullets(s["preferred skills"], 12).join("\n"),
+    experienceLevel: s["experience level"] ?? "",
+    interviewType: (VALID_COACH_TYPES.find((t) => t === type) ?? "") as ParsedJobPosting["interviewType"],
+  };
+}

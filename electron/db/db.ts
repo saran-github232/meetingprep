@@ -26,6 +26,14 @@ function migrate() {
       db.exec(`ALTER TABLE ${table} ADD COLUMN review_count INTEGER NOT NULL DEFAULT 0`);
     if (!cols.has("next_review_at")) db.exec(`ALTER TABLE ${table} ADD COLUMN next_review_at TEXT`);
   }
+  // Interview Coach v2: session language preference + detected role profile.
+  const coachCols = new Set(
+    (db.prepare(`PRAGMA table_info(interview_coach_sessions)`).all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  if (!coachCols.has("preferred_language"))
+    db.exec(`ALTER TABLE interview_coach_sessions ADD COLUMN preferred_language TEXT NOT NULL DEFAULT 'auto'`);
+  if (!coachCols.has("role_profile"))
+    db.exec(`ALTER TABLE interview_coach_sessions ADD COLUMN role_profile TEXT NOT NULL DEFAULT 'general'`);
 }
 
 export interface QAHistoryRow {
@@ -384,6 +392,8 @@ export interface CoachSessionRow {
   company: string;
   interview_type: string;
   experience_level: string;
+  preferred_language: string;
+  role_profile: string;
   status: string;
   created_at: string;
   updated_at: string;
@@ -429,6 +439,8 @@ export function createCoachSession(input: {
   company: string;
   interviewType: string;
   experienceLevel: string;
+  preferredLanguage: string;
+  roleProfile: string;
   jobDescription: string;
   resume: string | null;
   requiredSkills: string;
@@ -439,10 +451,17 @@ export function createCoachSession(input: {
 }): number {
   const result = db
     .prepare(
-      `INSERT INTO interview_coach_sessions (job_title, company, interview_type, experience_level, status)
-       VALUES (?, ?, ?, ?, 'setup')`
+      `INSERT INTO interview_coach_sessions (job_title, company, interview_type, experience_level, preferred_language, role_profile, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'setup')`
     )
-    .run(input.jobTitle, input.company, input.interviewType, input.experienceLevel);
+    .run(
+      input.jobTitle,
+      input.company,
+      input.interviewType,
+      input.experienceLevel,
+      input.preferredLanguage,
+      input.roleProfile
+    );
   const sessionId = Number(result.lastInsertRowid);
   db.prepare(
     `INSERT INTO interview_coach_context
@@ -468,6 +487,8 @@ function mapCoachSessionRow(row: Record<string, unknown>): CoachSessionRow {
     company: String(row.company ?? ""),
     interview_type: String(row.interview_type ?? "mixed"),
     experience_level: String(row.experience_level ?? ""),
+    preferred_language: String(row.preferred_language ?? "auto"),
+    role_profile: String(row.role_profile ?? "general"),
     status: String(row.status ?? "setup"),
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),

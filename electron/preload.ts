@@ -115,17 +115,21 @@ const api = {
     listSessions: (): Promise<CoachSessionRow[]> => ipcRenderer.invoke("coach:listSessions"),
     deleteSession: (sessionId: number): Promise<void> => ipcRenderer.invoke("coach:deleteSession", sessionId),
     analyze: (sessionId: number): Promise<InterviewCoachContext> => ipcRenderer.invoke("coach:analyze", sessionId),
+    parseJobPosting: (rawPosting: string): Promise<import("./ai/interviewCoach").ParsedJobPosting> =>
+      ipcRenderer.invoke("coach:parseJobPosting", rawPosting),
     nextQuestion: (
       sessionId: number,
       source: "ai" | "user",
-      userQuestion?: string
+      userQuestion?: string,
+      langOverride?: "en" | "te" | "hi" | "te-en" | null
     ): Promise<{ id: number; question: string }> =>
-      ipcRenderer.invoke("coach:nextQuestion", sessionId, source, userQuestion),
+      ipcRenderer.invoke("coach:nextQuestion", sessionId, source, userQuestion, langOverride ?? null),
     streamFeedback: (
       sessionId: number,
       questionId: number,
       question: string,
       answer: string,
+      langOverride: "en" | "te" | "hi" | "te-en" | null,
       onChunk: (chunk: string) => void,
       onDone: () => void,
       onError: (message: string) => void,
@@ -133,7 +137,7 @@ const api = {
     ) =>
       streamChannel(
         "coach:streamFeedback",
-        [sessionId, questionId, question, answer],
+        [sessionId, questionId, question, answer, langOverride ?? null],
         onChunk,
         onDone,
         onError,
