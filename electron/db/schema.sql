@@ -67,3 +67,54 @@ CREATE TABLE IF NOT EXISTS resume_tailoring_results (
 CREATE INDEX IF NOT EXISTS idx_qa_history_category ON qa_history(category);
 CREATE INDEX IF NOT EXISTS idx_qa_history_created ON qa_history(created_at);
 CREATE INDEX IF NOT EXISTS idx_coding_history_language ON coding_history(language);
+
+-- Interview Coach (Phase 12): one row per prepared interview. Children reference the
+-- session by id; deletes remove children explicitly (foreign_keys pragma stays off).
+CREATE TABLE IF NOT EXISTS interview_coach_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_title TEXT NOT NULL DEFAULT '',
+  company TEXT NOT NULL DEFAULT '',
+  interview_type TEXT NOT NULL DEFAULT 'mixed',
+  experience_level TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'setup',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS interview_coach_context (
+  session_id INTEGER PRIMARY KEY,
+  job_description_encrypted TEXT NOT NULL,
+  resume_encrypted TEXT,
+  analysis_encrypted TEXT,
+  required_skills TEXT NOT NULL DEFAULT '',
+  preferred_skills TEXT NOT NULL DEFAULT '',
+  responsibilities TEXT NOT NULL DEFAULT '',
+  tech_stack TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS interview_coach_questions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL,
+  question TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'ai',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_coach_questions_session ON interview_coach_questions(session_id);
+
+CREATE TABLE IF NOT EXISTS interview_coach_answers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL,
+  question_id INTEGER NOT NULL,
+  answer_encrypted TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_coach_answers_session ON interview_coach_answers(session_id);
+
+CREATE TABLE IF NOT EXISTS interview_coach_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  answer_id INTEGER NOT NULL UNIQUE,
+  feedback_encrypted TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

@@ -93,11 +93,26 @@ export function classifyError(err: unknown): ErrorKind {
   return "unknown";
 }
 
+// Scrubs anything that looks like a live API key out of provider error text. Providers
+// normally never echo the Authorization header back, but if one ever does (bad proxy, odd
+// error body), the "Technical detail" section must not become the leak.
+const KEY_SHAPES: Array<[RegExp, string]> = [
+  [/nvapi-[A-Za-z0-9_-]{8,}/g, "nvapi-***"],
+  [/sk-[A-Za-z0-9_-]{8,}/g, "sk-***"],
+  [/AIza[A-Za-z0-9_-]{8,}/g, "AIza***"],
+];
+
+function redactKeys(text: string): string {
+  let out = text;
+  for (const [pattern, replacement] of KEY_SHAPES) out = out.replace(pattern, replacement);
+  return out;
+}
+
 // Rewrites an error into a message a normal user can act on — what went wrong on whose side
 // and what to do about it — with the raw provider error kept below a separator so details
 // aren't lost. Used by handlers.ts after the provider/retry chain is exhausted.
 export function friendlyErrorMessage(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = redactKeys(err instanceof Error ? err.message : String(err));
   const detail = `\n\nTechnical detail: ${message}`;
   switch (classifyError(err)) {
     case "invalid_key":

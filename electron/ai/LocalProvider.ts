@@ -5,6 +5,7 @@ import type {
   MeetingNoteSummary,
   QuestionCategory,
   InterviewPrepItem,
+  CoachSpeed,
 } from "./AIProvider";
 import {
   CATEGORIES,
@@ -83,7 +84,7 @@ export class LocalProvider implements AIProvider {
     }
   }
 
-  private async request(prompt: string, stream: boolean): Promise<Response> {
+  private async request(prompt: string, stream: boolean, numPredict?: number): Promise<Response> {
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}/api/chat`, {
@@ -94,7 +95,8 @@ export class LocalProvider implements AIProvider {
           messages: [{ role: "user", content: prompt }],
           stream,
           // Resume + job-description prompts run long; the default context window truncates them.
-          options: { num_ctx: 8192 },
+          // num_predict caps generation for the coach's speed grades (Ollama's max-output knob).
+          options: { num_ctx: 8192, ...(numPredict !== undefined ? { num_predict: numPredict } : {}) },
         }),
       });
     } catch (err) {
@@ -175,14 +177,14 @@ export class LocalProvider implements AIProvider {
     return this.streamChat(resumeTailoringPrompt(resumeText, jobDescription, jobTitle));
   }
 
-  private streamChat(prompt: string): AsyncIterable<string> {
-    return this.streamWithModel(prompt);
+  private streamChat(prompt: string, numPredict?: number): AsyncIterable<string> {
+    return this.streamWithModel(prompt, numPredict);
   }
 
   // Ollama streams newline-delimited JSON objects, each carrying a token chunk in
   // message.content — split on line boundaries and forward the text as it arrives.
-  private async *streamWithModel(prompt: string): AsyncIterable<string> {
-    const res = await this.request(prompt, true);
+  private async *streamWithModel(prompt: string, numPredict?: number): AsyncIterable<string> {
+    const res = await this.request(prompt, true, numPredict);
     if (!res.body) throw new Error("Ollama returned an empty response body.");
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -207,5 +209,16 @@ export class LocalProvider implements AIProvider {
         if (text) yield text;
       }
     }
+  }
+
+  async completeCoach(prompt: string, _speed: CoachSpeed, maxOutputTokens: number): Promise<string> {
+    const res = await this.request(prompt, false, maxOutputTokens);
+    const json = (await res.json()) as { message?: { content?: string }; error?: string };
+    if (json.error) throw new Error(`Ollama error: ${json.error}`);
+    return json.message?.content ?? "";
+  }
+
+  streamCoach(prompt: string, _speed: CoachSpeed, maxOutputTokens: number): AsyncIterable<string> {
+    return this.streamChat(prompt, maxOutputTokens);
   }
 }

@@ -23,11 +23,18 @@ export default function Settings() {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [keySaved, setKeySaved] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [localInfo, setLocalInfo] = useState<LocalModelsInfo | null>(null);
   const [localModel, setLocalModel] = useState("");
+  const [coachProvider, setCoachProvider] = useState<string>("auto");
+  const [coachSpeed, setCoachSpeed] = useState<string>("fast");
+  const [coachLength, setCoachLength] = useState<string>("medium");
+  const [coachVoice, setCoachVoice] = useState(false);
+  const [coachAutoListen, setCoachAutoListen] = useState(true);
+  const [coachShowLatency, setCoachShowLatency] = useState(false);
   const { stealth, toggleStealth, capability } = useStealth();
 
   function refreshStatus() {
@@ -42,6 +49,13 @@ export default function Settings() {
     window.api.ai.getActiveProvider().then(setProvider);
     window.api.plan.get().then(setPlan);
     window.api.settings.get("local_model").then((v) => setLocalModel(v ?? ""));
+    // Interview Coach preferences (shared with the coach page).
+    window.api.settings.get("coach_provider").then((v) => setCoachProvider(v ?? "auto"));
+    window.api.settings.get("coach_speed").then((v) => setCoachSpeed(v ?? "fast"));
+    window.api.settings.get("coach_length").then((v) => setCoachLength(v ?? "medium"));
+    window.api.settings.get("coach_voice").then((v) => setCoachVoice(v === "1"));
+    window.api.settings.get("coach_autolisten").then((v) => setCoachAutoListen(v !== "0"));
+    window.api.settings.get("coach_show_latency").then((v) => setCoachShowLatency(v === "1"));
     refreshLocal();
   }, []);
 
@@ -49,6 +63,7 @@ export default function Settings() {
     // Reset per-provider state whenever the selected chip changes.
     setHasKey(null);
     setTestResult(null);
+    setKeyError(null);
     window.api.ai.hasKey(provider).then(setHasKey);
   }, [provider]);
 
@@ -71,19 +86,32 @@ export default function Settings() {
 
   async function saveKey() {
     if (!apiKeyInput.trim()) return;
-    await window.api.ai.setApiKey(provider, apiKeyInput.trim());
-    setApiKeyInput("");
-    setKeySaved(true);
-    setTestResult(null);
-    setTimeout(() => setKeySaved(false), 2000);
-    refreshStatus();
+    setKeyError(null);
+    try {
+      await window.api.ai.setApiKey(provider, apiKeyInput.trim());
+      setApiKeyInput("");
+      setKeySaved(true);
+      setTestResult(null);
+      setTimeout(() => setKeySaved(false), 2000);
+      refreshStatus();
+    } catch (err) {
+      // Encryption failures used to surface as a silent no-op — show them instead.
+      setKeyError(
+        `Couldn't save the key: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
   }
 
   async function clearKey() {
     if (!confirm(`Remove the saved ${PROVIDERS.find((p) => p.id === provider)?.label} API key?`)) return;
-    await window.api.ai.clearApiKey(provider);
-    setTestResult(null);
-    refreshStatus();
+    setKeyError(null);
+    try {
+      await window.api.ai.clearApiKey(provider);
+      setTestResult(null);
+      refreshStatus();
+    } catch (err) {
+      setKeyError(`Couldn't remove the key: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   async function testConnection() {
@@ -312,6 +340,7 @@ export default function Settings() {
                 )}
               </div>
               {keySaved && <p className="ok-text mt-2 text-xs">Saved</p>}
+              {keyError && <p className="error-box mt-2">{keyError}</p>}
 
               <div className="mt-3 flex items-center gap-2.5">
                 <button onClick={testConnection} disabled={testing} className="btn-secondary shrink-0">
@@ -330,7 +359,8 @@ export default function Settings() {
 
               {provider === "nvidia" && (
                 <p className="mt-2.5 text-[11.5px] leading-relaxed text-faint">
-                  Default model: <code className="font-mono">meta/llama-3.3-70b-instruct</code>. To pin a
+                  Default chain: <code className="font-mono">nvidia/nemotron-3-super-120b-a12b</code> →{" "}
+                  <code className="font-mono">nvidia/nemotron-3.5-lightning-30b-a3b</code>. To pin a
                   different one, set <code className="font-mono">NVIDIA_MODEL</code> in{" "}
                   <code className="font-mono">.env</code> (exact name from{" "}
                   <a href="https://build.nvidia.com/models" target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
@@ -356,6 +386,134 @@ export default function Settings() {
               </p>
             </>
           )}
+        </div>
+      </section>
+
+      {/* interview coach */}
+      <section>
+        <h2 className="section-label mb-2">Interview Coach</h2>
+        <div className="card space-y-4 p-5">
+          <div>
+            <p className="text-[13px] leading-relaxed text-muted">
+              Preferences for the dedicated Interview Coach page — its own prep studio with resume/job
+              analysis, voice practice, and streamed coaching. Keys come from AI provider above; a
+              provider without a key falls back to the next configured one automatically.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="field-label">Preferred AI provider</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: "auto", label: "Auto (active provider)" },
+                  { id: "gemini", label: "Gemini" },
+                  { id: "nvidia", label: "NVIDIA" },
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={async () => {
+                      setCoachProvider(p.id);
+                      await window.api.settings.set("coach_provider", p.id);
+                    }}
+                    className={`chip ${coachProvider === p.id ? "chip-active" : "chip-idle"}`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="field-label">Speed</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: "fast", label: "Fast", title: "Compact prompts + low-latency models — the default" },
+                  { id: "balanced", label: "Balanced", title: "More context per answer" },
+                  { id: "quality", label: "Quality", title: "Fullest analysis and answers" },
+                ].map((s) => (
+                  <button
+                    key={s.id}
+                    title={s.title}
+                    onClick={async () => {
+                      setCoachSpeed(s.id);
+                      await window.api.settings.set("coach_speed", s.id);
+                    }}
+                    className={`chip ${coachSpeed === s.id ? "chip-active" : "chip-idle"}`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="field-label">Response length</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: "short", label: "Short" },
+                  { id: "medium", label: "Medium" },
+                  { id: "detailed", label: "Detailed" },
+                ].map((l) => (
+                  <button
+                    key={l.id}
+                    onClick={async () => {
+                      setCoachLength(l.id);
+                      await window.api.settings.set("coach_length", l.id);
+                    }}
+                    className={`chip ${coachLength === l.id ? "chip-active" : "chip-idle"}`}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[13px] font-medium">Read questions aloud</span>
+                <button
+                  role="switch"
+                  aria-checked={coachVoice}
+                  aria-label="Read questions aloud"
+                  onClick={async () => {
+                    setCoachVoice(!coachVoice);
+                    await window.api.settings.set("coach_voice", coachVoice ? "0" : "1");
+                  }}
+                  className={`switch ${coachVoice ? "switch-on" : ""}`}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[13px] font-medium">Auto-start transcription</span>
+                <button
+                  role="switch"
+                  aria-checked={coachAutoListen}
+                  aria-label="Auto-start transcription"
+                  onClick={async () => {
+                    setCoachAutoListen(!coachAutoListen);
+                    await window.api.settings.set("coach_autolisten", coachAutoListen ? "0" : "1");
+                  }}
+                  className={`switch ${coachAutoListen ? "switch-on" : ""}`}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[13px] font-medium">Show latency metrics</span>
+                <button
+                  role="switch"
+                  aria-checked={coachShowLatency}
+                  aria-label="Show latency metrics"
+                  onClick={async () => {
+                    setCoachShowLatency(!coachShowLatency);
+                    await window.api.settings.set("coach_show_latency", coachShowLatency ? "0" : "1");
+                  }}
+                  className={`switch ${coachShowLatency ? "switch-on" : ""}`}
+                />
+              </div>
+            </div>
+          </div>
+          <p className="text-[11.5px] leading-relaxed text-faint">
+            Actual response latency depends on your network, provider, and model — Fast mode minimizes
+            it (compact prompts, output caps, cached analysis) but can't guarantee a fixed response
+            time. Latency metrics show time-to-first-token and total generation time when enabled.
+          </p>
         </div>
       </section>
 

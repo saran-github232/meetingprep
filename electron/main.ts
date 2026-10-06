@@ -11,23 +11,16 @@ import { registerIpcHandlers } from "./ipc/handlers";
 import { loadEnvFile } from "./env";
 import { buildAppMenu } from "./menu";
 import * as db from "./db/db";
-import type { AIProviderName } from "./db/db";
+import { envKeyName, type AIProviderName } from "./ai/providerKeys";
+import { orderNamesForCoach, type CoachProviderPreference } from "./ai/interviewCoach";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 loadEnvFile();
 
-const ENV_KEY_NAME: Record<AIProviderName, string> = {
-  gemini: "GEMINI_API_KEY",
-  openai: "OPENAI_API_KEY",
-  anthropic: "ANTHROPIC_API_KEY",
-  nvidia: "NVIDIA_API_KEY",
-  local: "", // Ollama needs no key — it's a local server
-};
-
 function buildProvider(name: AIProviderName): AIProvider | null {
   if (name === "local") return new LocalProvider(db.getSetting("local_model") ?? DEFAULT_LOCAL_MODEL);
-  const apiKey = db.getApiKey(name) ?? process.env[ENV_KEY_NAME[name]];
+  const apiKey = db.getApiKey(name) ?? process.env[envKeyName(name) ?? ""]?.trim();
   if (!apiKey) return null;
   if (name === "openai") return new OpenAIProvider(apiKey);
   if (name === "anthropic") return new AnthropicProvider(apiKey);
@@ -40,12 +33,14 @@ function buildProvider(name: AIProviderName): AIProvider | null {
 // answers — see handlers.ts, which tries each in order until one succeeds. Local (Ollama)
 // sits last: if it's installed, a cloud outage silently degrades to offline answers; if it
 // isn't, the connection to 127.0.0.1 is refused instantly and the chain moves on.
-function getConfiguredProviders(): AIProvider[] {
+// `prefer` lets Interview Coach move its chosen provider to the front without removing the
+// fallback behind it (an unconfigured preference is ignored by orderNamesForCoach).
+function getConfiguredProviders(prefer: CoachProviderPreference = "auto"): AIProvider[] {
   const active = db.getActiveProvider();
-  const order: AIProviderName[] = [
-    active,
-    ...(["gemini", "openai", "anthropic", "nvidia", "local"] as const).filter((p) => p !== active),
-  ];
+  const order = orderNamesForCoach(
+    [active, ...(["gemini", "openai", "anthropic", "nvidia", "local"] as const).filter((p) => p !== active)],
+    prefer
+  );
   return order.map(buildProvider).filter((p): p is AIProvider => p !== null);
 }
 

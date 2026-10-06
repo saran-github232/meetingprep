@@ -9,6 +9,7 @@ import {
   IconChevron,
   IconClock,
   IconCode,
+  IconCoach,
   IconDashboard,
   IconFile,
   IconFolder,
@@ -32,6 +33,7 @@ import Practice from "./pages/Practice";
 import QuestionAnalyzer from "./pages/QuestionAnalyzer";
 import CodingLab from "./pages/CodingLab";
 import MockInterview from "./pages/MockInterview";
+import InterviewCoach from "./pages/InterviewCoach";
 import SetupGuide from "./pages/SetupGuide";
 import ResumeContext from "./pages/ResumeContext";
 import ResumeTailoring from "./pages/ResumeTailoring";
@@ -52,6 +54,7 @@ const NAV_GROUPS: { label: string; items: { to: string; label: string; icon: typ
       { to: "/practice", label: "Practice", icon: IconPractice },
       { to: "/coding-lab", label: "Coding Lab", icon: IconCode },
       { to: "/mock-interview", label: "Mock Interview", icon: IconMic },
+      { to: "/interview-coach", label: "Interview Coach", icon: IconCoach },
       { to: "/analyzer", label: "Question Analyzer", icon: IconScan },
       { to: "/setup-guide", label: "Setup Guide", icon: IconGuide },
     ],
@@ -262,6 +265,7 @@ export default function App() {
           <Route path="/practice" element={<Practice />} />
           <Route path="/coding-lab" element={<CodingLab />} />
           <Route path="/mock-interview" element={<MockInterview />} />
+          <Route path="/interview-coach" element={<InterviewCoach />} />
           <Route path="/analyzer" element={<QuestionAnalyzer />} />
           <Route path="/setup-guide" element={<SetupGuide />} />
           <Route path="/resume" element={<ResumeContext />} />

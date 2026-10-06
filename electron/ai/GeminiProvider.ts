@@ -6,6 +6,7 @@ import type {
   MeetingNoteSummary,
   QuestionCategory,
   InterviewPrepItem,
+  CoachSpeed,
 } from "./AIProvider";
 import {
   CATEGORIES,
@@ -116,6 +117,46 @@ export class GeminiProvider implements AIProvider {
 
   private async *streamWithModel(name: string, prompt: string): AsyncIterable<string> {
     const result = await withRetry(() => this.model(name).generateContentStream(prompt));
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      if (text) yield text;
+    }
+  }
+
+  // Interview Coach speed chains, built from the same concrete models as MODELS above —
+  // FAST keeps only the flash-lite (lowest latency); QUALITY leads with the stronger flash.
+  private coachModels(speed: CoachSpeed): string[] {
+    if (speed === "fast") return ["gemini-3.5-flash-lite"];
+    if (speed === "balanced") return ["gemini-3.5-flash-lite", "gemini-3.6-flash"];
+    return ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
+  }
+
+  private coachModel(name: string, maxOutputTokens: number) {
+    return this.client.getGenerativeModel({
+      model: name,
+      generationConfig: { maxOutputTokens },
+    });
+  }
+
+  async completeCoach(prompt: string, speed: CoachSpeed, maxOutputTokens: number): Promise<string> {
+    const result = await withFallback(
+      this.coachModels(speed).map((name) => () =>
+        withRetry(() => this.coachModel(name, maxOutputTokens).generateContent(prompt))
+      )
+    );
+    return result.response.text();
+  }
+
+  streamCoach(prompt: string, speed: CoachSpeed, maxOutputTokens: number): AsyncIterable<string> {
+    return withStreamFallback(
+      this.coachModels(speed).map((name) => () => this.streamCoachWithModel(name, prompt, maxOutputTokens))
+    );
+  }
+
+  private async *streamCoachWithModel(name: string, prompt: string, maxOutputTokens: number): AsyncIterable<string> {
+    const result = await withRetry(() =>
+      this.coachModel(name, maxOutputTokens).generateContentStream(prompt)
+    );
     for await (const chunk of result.stream) {
       const text = chunk.text();
       if (text) yield text;

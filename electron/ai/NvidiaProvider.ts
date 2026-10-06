@@ -5,6 +5,7 @@ import type {
   MeetingNoteSummary,
   QuestionCategory,
   InterviewPrepItem,
+  CoachSpeed,
 } from "./AIProvider";
 import {
   CATEGORIES,
@@ -22,7 +23,13 @@ import {
 } from "./promptTemplates";
 import { sseEvents } from "./sse";
 import { withRetry, withFallback, withStreamFallback } from "./retry";
-import { NVIDIA_BASE_URL, NVIDIA_MODELS, makeThinkFilter, stripThinking } from "./nvidiaWire";
+import {
+  NVIDIA_MODELS,
+  chatRequest,
+  makeThinkFilter,
+  nvidiaCoachModels,
+  stripThinking,
+} from "./nvidiaWire";
 
 const OPEN_TIMEOUT_MS = 120_000; // non-streaming whole-request cap
 const STREAM_TIMEOUT_MS = 300_000; // streaming session cap
@@ -41,20 +48,22 @@ export class NvidiaProvider implements AIProvider {
 
   // Retries the request itself if NVIDIA responds with a transient 429/503 — fetch only
   // rejects on network failure, so a bad HTTP status has to be turned into a thrown error here.
-  private async requestOk(model: string, prompt: string, stream: boolean): Promise<Response> {
-    const timeoutMs = stream ? STREAM_TIMEOUT_MS : OPEN_TIMEOUT_MS;
+  // The wire payload (including the nemotron "thinking": false flag, which keeps reasoning
+  // tokens from burning time-to-first-token) comes from chatRequest in nvidiaWire.ts.
+  private async requestOk(
+    model: string,
+    prompt: string,
+    stream: boolean,
+    maxTokens?: number
+  ): Promise<Response> {
     return withRetry(async () => {
+      const { url, init } = chatRequest(this.apiKey, model, prompt, stream, stream ? STREAM_TIMEOUT_MS : OPEN_TIMEOUT_MS, maxTokens);
       let res: Response;
       try {
-        res = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
-          body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], stream }),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
+        res = await fetch(url, init);
       } catch (err) {
         if (err instanceof Error && err.name === "TimeoutError") {
-          throw new Error(`NVIDIA error: request timed out after ${timeoutMs / 1000}s`);
+          throw new Error(`NVIDIA error: request timed out after ${STREAM_TIMEOUT_MS / 1000}s`);
         }
         throw err;
       }
@@ -140,12 +149,30 @@ export class NvidiaProvider implements AIProvider {
     return this.streamChat(resumeTailoringPrompt(resumeText, jobDescription, jobTitle));
   }
 
-  private streamChat(prompt: string): AsyncIterable<string> {
-    return withStreamFallback(this.models.map((model) => () => this.streamWithModel(model, prompt)));
+  private coachModels(speed: CoachSpeed): string[] {
+    // A pinned NVIDIA_MODEL applies to coach requests too — it replaces the chain.
+    return this.models === NVIDIA_MODELS ? nvidiaCoachModels(speed) : this.models;
   }
 
-  private async *streamWithModel(model: string, prompt: string): AsyncIterable<string> {
-    const res = await this.requestOk(model, prompt, true);
+  async completeCoach(prompt: string, speed: CoachSpeed, maxOutputTokens: number): Promise<string> {
+    const res = await withFallback(
+      this.coachModels(speed).map((model) => () => this.requestOk(model, prompt, false, maxOutputTokens))
+    );
+    return stripThinking(this.extractText(await res.json()));
+  }
+
+  streamCoach(prompt: string, speed: CoachSpeed, maxOutputTokens: number): AsyncIterable<string> {
+    return withStreamFallback(
+      this.coachModels(speed).map((model) => () => this.streamWithModel(model, prompt, maxOutputTokens))
+    );
+  }
+
+  private streamChat(prompt: string, maxTokens?: number): AsyncIterable<string> {
+    return withStreamFallback(this.models.map((model) => () => this.streamWithModel(model, prompt, maxTokens)));
+  }
+
+  private async *streamWithModel(model: string, prompt: string, maxTokens?: number): AsyncIterable<string> {
+    const res = await this.requestOk(model, prompt, true, maxTokens);
     const filter = makeThinkFilter();
     for await (const data of sseEvents(res)) {
       if (data === "[DONE]") continue;

@@ -139,6 +139,21 @@ Conventions above). To actually *see* a UI change rather than just typecheck it:
   don't revert that to fail on the first one.
 - `src/pages/*.tsx` — one file per sidebar nav item, listed in `src/App.tsx`'s
   `NAV_GROUPS` alongside the `<Routes>` list — both need updating to add a page.
+- `electron/ai/providerKeys.ts` — the single source of truth for API-key storage
+  naming (settings row + env var per provider); both `main.ts` and `handlers.ts`
+  read it — don't reintroduce per-file `ENV_KEY_NAME` maps. `security/crypto.ts`
+  saves in a marked base64 mode (`plain:v1:`) when `safeStorage` is unavailable
+  instead of throwing; that throw used to make key saves silently fail.
+- `electron/ai/interviewCoach.ts` — Interview Coach pure logic (prompts, parsers,
+  speed-graded trimming, session memory, `orderNamesForCoach`), import-free like
+  `nvidiaWire.ts` so tests import it directly. Coach speed→model chains live in
+  the providers themselves (Gemini `coachModels`, `nvidiaCoachModels` in
+  nvidiaWire.ts) — don't hardcode model names in feature code or handlers. The
+  coach IPC persists answers/feedback only after the stream completes cleanly,
+  and the one-time resume/JD analysis is cached in the session's context row;
+  nothing should re-send the full resume per question. The coach is
+  practice-only by design (see the ethical-boundary section above): no path may
+  feed answers during a real call.
 
 ## Known open thread (as of this writing — check if still relevant before acting)
 

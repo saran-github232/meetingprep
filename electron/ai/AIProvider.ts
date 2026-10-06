@@ -76,6 +76,12 @@ export interface MeetingNoteSummary {
   actionItems: string[];
 }
 
+// Interview Coach speed grades — providers map these to their own model chains, so no
+// model names leak into feature code. Canonical definition lives in interviewCoach.ts
+// (kept import-free for the test suite); re-exported here for callers of the interface.
+import type { CoachSpeed } from "./interviewCoach";
+export type { CoachSpeed };
+
 /**
  * Abstraction over an LLM backend — implemented by GeminiProvider, OpenAIProvider, and
  * AnthropicProvider so callers don't touch provider-specific code.
@@ -109,4 +115,9 @@ export interface AIProvider {
     resumeContext: string | null
   ): AsyncIterable<string>;
   streamResumeTailoring(resumeText: string, jobDescription: string, jobTitle: string): AsyncIterable<string>;
+  // Interview Coach hooks — speed-graded so the coach can trade depth for latency without
+  // the rest of the app changing behavior. maxOutputTokens caps generation (FAST keeps it
+  // tight); providers apply it where the API supports it.
+  completeCoach(prompt: string, speed: CoachSpeed, maxOutputTokens: number): Promise<string>;
+  streamCoach(prompt: string, speed: CoachSpeed, maxOutputTokens: number): AsyncIterable<string>;
 }

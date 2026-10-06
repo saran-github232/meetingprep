@@ -97,6 +97,7 @@ export function buildAppMenu() {
         { label: "Practice", click: () => sendNavigate("/practice") },
         { label: "Coding Lab", click: () => sendNavigate("/coding-lab") },
         { label: "Mock Interview", click: () => sendNavigate("/mock-interview") },
+        { label: "Interview Coach", click: () => sendNavigate("/interview-coach") },
         { label: "Question Analyzer", click: () => sendNavigate("/analyzer") },
         { label: "Resume Context", click: () => sendNavigate("/resume") },
         { label: "Resume Tailoring", click: () => sendNavigate("/resume-tailoring") },

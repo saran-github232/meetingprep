@@ -20,6 +20,16 @@ export const NVIDIA_MODELS = [
   "z-ai/glm-5.3-flash",
 ];
 
+// Interview Coach speed → model chain, reusing the chain above (no second list of model
+// names to keep current). FAST leads with the ~3B-active lightning MoE for the lowest
+// time-to-first-token; BALANCED/QUALITY use the standard default-first chain.
+export type CoachSpeedName = "fast" | "balanced" | "quality";
+
+export function nvidiaCoachModels(speed: CoachSpeedName): string[] {
+  if (speed === "fast") return [NVIDIA_MODELS[1], NVIDIA_MODELS[2]];
+  return NVIDIA_MODELS;
+}
+
 /**
  * Builds the request for one NIM chat completion. Kept pure so tests can assert the
  * exact wire format against NVIDIA's documented API without network access.
@@ -29,13 +39,17 @@ export function chatRequest(
   model: string,
   prompt: string,
   stream: boolean,
-  timeoutMs: number
+  timeoutMs: number,
+  maxTokens?: number
 ): { url: string; init: RequestInit } {
   const body: Record<string, unknown> = {
     model,
     messages: [{ role: "user", content: prompt }],
     stream,
   };
+  // Coach requests cap the output so generation stops once the structured sections exist
+  // instead of streaming past them (latency budget).
+  if (maxTokens !== undefined) body.max_tokens = maxTokens;
   // Nemotron models are reasoning hybrids — without this documented NIM extension they
   // emit a <think> trace before the answer (slower, and the app's strict "### section"
   // format would start with it). The streamed think-filter remains as a safety net.

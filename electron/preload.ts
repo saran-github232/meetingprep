@@ -6,12 +6,15 @@ import type {
   MeetingNoteSummary,
   QuestionCategory,
 } from "./ai/AIProvider";
+import type { InterviewCoachContext, CoachSetup } from "./ai/interviewCoach";
 import type {
   QAHistoryRow,
   CodingHistoryRow,
   MeetingNoteRow,
   MockInterviewResultRow,
   ResumeTailoringRow,
+  CoachSessionBundle,
+  CoachSessionRow,
   AIProviderName,
   Plan,
 } from "./db/db";
@@ -24,12 +27,14 @@ function streamChannel(
   args: unknown[],
   onChunk: (chunk: string) => void,
   onDone: () => void,
-  onError: (message: string) => void
+  onError: (message: string) => void,
+  onMetrics?: (metrics: { ttftMs: number; totalMs: number }) => void
 ): () => void {
   const requestId = crypto.randomUUID();
   const chunkChannel = `ai:chunk:${requestId}`;
   const doneChannel = `ai:done:${requestId}`;
   const errorChannel = `ai:error:${requestId}`;
+  const metricsChannel = `ai:metrics:${requestId}`;
 
   const chunkListener = (_e: Electron.IpcRendererEvent, chunk: string) => onChunk(chunk);
   const doneListener = () => {
@@ -40,15 +45,19 @@ function streamChannel(
     cleanup();
     onError(message);
   };
+  const metricsListener = (_e: Electron.IpcRendererEvent, metrics: { ttftMs: number; totalMs: number }) =>
+    onMetrics?.(metrics);
   function cleanup() {
     ipcRenderer.removeListener(chunkChannel, chunkListener);
     ipcRenderer.removeListener(doneChannel, doneListener);
     ipcRenderer.removeListener(errorChannel, errorListener);
+    if (onMetrics) ipcRenderer.removeListener(metricsChannel, metricsListener);
   }
 
   ipcRenderer.on(chunkChannel, chunkListener);
   ipcRenderer.on(doneChannel, doneListener);
   ipcRenderer.on(errorChannel, errorListener);
+  if (onMetrics) ipcRenderer.on(metricsChannel, metricsListener);
   ipcRenderer.send(startChannel, requestId, ...args);
 
   return cleanup;
@@ -97,6 +106,39 @@ const api = {
       ipcRenderer.invoke("resumeTailoring:record", row),
     list: (): Promise<ResumeTailoringRow[]> => ipcRenderer.invoke("resumeTailoring:list"),
     delete: (id: number) => ipcRenderer.invoke("resumeTailoring:delete", id),
+  },
+  coach: {
+    createSession: (input: { setup: CoachSetup; resume: string | null }): Promise<number> =>
+      ipcRenderer.invoke("coach:createSession", input),
+    latestSession: (sessionId?: number): Promise<CoachSessionBundle | null> =>
+      ipcRenderer.invoke("coach:latestSession", sessionId),
+    listSessions: (): Promise<CoachSessionRow[]> => ipcRenderer.invoke("coach:listSessions"),
+    deleteSession: (sessionId: number): Promise<void> => ipcRenderer.invoke("coach:deleteSession", sessionId),
+    analyze: (sessionId: number): Promise<InterviewCoachContext> => ipcRenderer.invoke("coach:analyze", sessionId),
+    nextQuestion: (
+      sessionId: number,
+      source: "ai" | "user",
+      userQuestion?: string
+    ): Promise<{ id: number; question: string }> =>
+      ipcRenderer.invoke("coach:nextQuestion", sessionId, source, userQuestion),
+    streamFeedback: (
+      sessionId: number,
+      questionId: number,
+      question: string,
+      answer: string,
+      onChunk: (chunk: string) => void,
+      onDone: () => void,
+      onError: (message: string) => void,
+      onMetrics?: (metrics: { ttftMs: number; totalMs: number }) => void
+    ) =>
+      streamChannel(
+        "coach:streamFeedback",
+        [sessionId, questionId, question, answer],
+        onChunk,
+        onDone,
+        onError,
+        onMetrics
+      ),
   },
   settings: {
     get: (key: string) => ipcRenderer.invoke("settings:get", key),

@@ -21,6 +21,7 @@ Built for learning and practice: it never impersonates you and never secretly an
   At the end, export a **session report**: every question, your answer, and the feedback as one Markdown or PDF file.
   Results feed into Insights.
   This is still self-practice against the app's own generated questions — see [Ethical boundary](#ethical-boundary) for what it deliberately won't do.
+- **Interview Coach** — a dedicated prep studio (its own sidebar item) built around one job application: import or paste a resume (or reuse your saved Resume Context), describe the job, and get a one-time analysis of how you match — strengths, weak areas, matched/missing skills, and the questions you're most likely to face. Then rehearse: the coach asks one question at a time (or you paste your own), you answer by voice or keyboard, and it streams back a suggested answer, key/missing points, resume evidence, job match, and likely follow-ups — everything grounded in your resume, never invented. See [Interview Coach](#interview-coach).
 
 ### Your profile
 
@@ -166,6 +167,36 @@ A pinned model is used *alone* (no fallback), so a typo'd name surfaces as a cle
 
 **How requests are made** — `POST https://integrate.api.nvidia.com/v1/chat/completions` with `Authorization: Bearer <key>` and an OpenAI-shaped JSON body, streaming via SSE. The key lives only in the Electron main process; the renderer never sees it, and error messages never echo it.
 
+## Interview Coach
+
+A dedicated navigation item for interview *preparation*: one job application, analyzed once, then rehearsed against. It is for disclosed practice — rehearsing alone against the app's own or your own pasted questions — never a covert live-answer feed (see [Ethical boundary](#ethical-boundary)).
+
+**Setup flow** — the first visit shows a three-step wizard:
+
+1. **Resume** — import a PDF (extracted locally), paste the text, reuse your saved **Resume Context**, or skip (suggested answers then stay generic and Resume Evidence is empty).
+2. **Job information** — title, company, the full job description, required/preferred skills, experience level, responsibilities, tech stack. Fields prefill from your Prep Room setup when available.
+3. **Session configuration** — interview type (technical, behavioral, HR, coding, system/design, project discussion, or mixed), response style (concise/balanced/detailed), and optional notes.
+
+Pressing **Continue** runs a one-time analysis ("Analyzing resume… → Analyzing job description… → Matching experience… → Preparing interview context… → Interview Coach ready.") that produces the session context: a candidate profile, relevant experience, strengths, weak areas, matched and missing skills, likely topics, and likely technical/behavioral/project/resume questions. **The analysis is grounded strictly in the supplied resume and job description — the coach never invents experience**; anything the resume doesn't support lands under Weak Areas or Missing Skills instead. The result is cached with the session, so questions and feedback never re-read the whole resume.
+
+**Practice flow** — the studio shows one question at a time. The coach generates the next question tuned to the job, your background, and everything already asked; you can also type a question you want to rehearse, or rehearse a follow-up straight from the feedback. Answers can be typed or dictated — the mic reuses the app's Web Speech dictation (interim text shown live; only finalized phrases are appended), and can auto-start when a question appears. Submitting streams the coaching back section by section: **Suggested Answer / Why this works / Key Points / Missing Points / Resume Evidence / Job Match / Follow-up**. Each question, answer, and feedback is saved to the session, so closing the app and returning picks up where you left off, and the coach's later feedback builds on earlier weak spots via a compact session memory (recent pairs only — full transcripts are never resent).
+
+**Providers & speed** — Interview Coach uses the same provider infrastructure as the rest of the app (keys, validation, error mapping, fallback), with two coach-specific settings: a *preferred provider* (Auto, Gemini, or NVIDIA — a preference moves that provider to the front of the fallback chain rather than removing the chain) and a *speed* grade:
+
+| Mode | What it does |
+|---|---|
+| **Fast** (default) | Compact prompts (a few hundred chars of context, not the resume), low-latency model chains, tight output caps, streaming |
+| **Balanced** | More context per prompt, still quick |
+| **Quality** | Fullest context; also used for the one-time session analysis |
+
+Per provider, the speed grade selects the model chain: Gemini's Fast mode uses `gemini-3.5-flash-lite` alone; NVIDIA's Fast mode leads with `nvidia/nemotron-3.5-lightning-30b-a3b` (~3B active) before the standard chain, and nemotron requests carry `thinking: false` so no reasoning tokens burn time-to-first-token. Output-token caps stop generation once the structured sections exist. Actual latency still depends on your network, provider, model, and prompt — Fast mode *minimizes* it; it can't *guarantee* a fixed response time. The optional **Show latency** setting displays measured time-to-first-token and total generation time per answer; no other numbers are claimed.
+
+**Settings → Interview Coach** — preferred provider, speed, response length, read-questions-aloud, auto-start transcription, and the latency readout.
+
+**Privacy & storage** — the job description, resume text, answers, feedback, and the derived analysis are stored **encrypted at rest** (same OS-keychain encryption as your resume context) in new `interview_coach_*` SQLite tables; skill/note fields are plain text. Nothing leaves the machine except prompts to your chosen AI provider. "Wipe everything" in Settings deletes coach sessions too; individual sessions can be deleted on the setup screen.
+
+**Troubleshooting** — "The analysis came back empty — try again" means the provider returned something unparseable (often a rate-limited or overloaded free tier; retry or switch provider). Wrong/missing provider keys surface with the same plain-language errors as everywhere else (see [Troubleshooting](#troubleshooting)). If suggested answers say "no resume was provided", reopen the session's setup and add one, then press Re-analyze.
+
 ## Plan / subscription
 
 A `Plan` preview lives in Settings, laying the groundwork for a future paid tier. **Plan (Free/Pro) and the Resources Admin/User role are two separate, unrelated axes** — Plan controls which *app features* are unlocked; Admin controls who can *publish shared resources*.
@@ -276,8 +307,9 @@ Packaging notes:
 - **Design system** — a Liquid Glass–style Tailwind v3 token layer: translucent, backdrop-blurred surfaces (`bg-surface/70` + `backdrop-blur`) with a soft specular top highlight, floating over an ambient multi-color gradient wash (daylight glass in light mode, smoked glass in dark mode), theme-aware floating sidebar, cyan-teal accent glow, Outfit + Geist typography with graceful system fallbacks, custom icon set, component classes for cards/buttons/fields/chips, subtle grain, entrance animations, styled scrollbars and focus rings.
 - **SQLite** (Node's built-in `node:sqlite`, no native compile step) for local history, resume context, meeting notes, and settings — stored under your OS's app-data folder.
 - **Electron `safeStorage`** (OS keychain / DPAPI / libsecret) encrypts your resume, meeting notes, tailored resumes, and API keys at rest.
-- **Gemini, OpenAI, Anthropic, NVIDIA NIM, and Local (Ollama)** — five interchangeable `AIProvider` implementations (`electron/ai/*Provider.ts`) with automatic model and provider fallback, all streaming token-by-token. NVIDIA NIM talks to `integrate.api.nvidia.com` with the same OpenAI-shaped payload the OpenAI provider uses (see [NVIDIA NIM provider](#nvidia-nim-provider)). Local talks to [Ollama](https://ollama.com) on `127.0.0.1:11434` — no API key, nothing leaves the machine, and it's picked last in the fallback chain so a missing/not-running Ollama install fails fast instead of stalling.
-- **Test connection & error mapping** — every provider key can be verified against its provider's live API before real use (`electron/ai/validate.ts`, one cheap request), and all AI errors pass through a single classifier (`electron/ai/retry.ts`) that rewrites raw HTTP failures into plain-language guidance: rejected key, retired/unknown model, rate limit, provider outage, timeout, or no network — with the technical detail kept after a separator.
+- **Gemini, OpenAI, Anthropic, NVIDIA NIM, and Local (Ollama)** — five interchangeable `AIProvider` implementations (`electron/ai/*Provider.ts`) with automatic model and provider fallback, all streaming token-by-token. NVIDIA NIM talks to `integrate.api.nvidia.com` with the same OpenAI-shaped payload the OpenAI provider uses (see [NVIDIA NIM provider](#nvidia-nim-provider)). Local talks to [Ollama](https://ollama.com) on `127.0.0.1:11434` — no API key, nothing leaves the machine, and it's picked last in the fallback chain so a missing/not-running Ollama install fails fast instead of stalling. Each provider also exposes speed-graded `completeCoach`/`streamCoach` hooks for Interview Coach: the speed grade maps to that provider's own model chain (no model names in feature code), and coach requests carry an output-token cap so generation stops once the structured sections exist.
+- **Interview Coach** — the feature's pure logic (prompts, parsers, speed-graded context trimming, session memory, provider preference ordering) lives in `electron/ai/interviewCoach.ts`, import-free so the test suite covers it directly; sessions, the cached analysis, questions, answers, and feedback live in encrypted `interview_coach_*` SQLite tables; the activity visualization is a lightweight canvas point-cloud (`src/components/CoachOrb.tsx`, ~800 static points, paused when the window is hidden, static frame under `prefers-reduced-motion`).
+- **Test connection & error mapping** — every provider key can be verified against its provider's live API before real use (`electron/ai/validate.ts`, one cheap request), and all AI errors pass through a single classifier (`electron/ai/retry.ts`) that rewrites raw HTTP failures into plain-language guidance: rejected key, retired/unknown model, rate limit, provider outage, timeout, or no network — with the technical detail kept after a separator and anything shaped like a live API key (`nvapi-…`, `sk-…`, `AIza…`) redacted. API-key persistence is layered: the encrypted OS-keychain copy in SQLite is authoritative, the gitignored `.env` is a dev-time sync (written best-effort — a read-only install can't fail the save), and both are named through one shared module (`electron/ai/providerKeys.ts`) so no two code paths can disagree about where a provider's key lives.
 - **Voice** — Web Speech API for dictation and live transcription (auto-restarting recognizer, interim results, tolerant of a few transient "network" errors from Chromium's speech service before surfacing one) and OS speech synthesis for read-aloud, wrapped in `src/lib/speech.ts`.
 - **Resume PDF import** — `pdf-parse` (pdf.js) extracts text locally in the main process; kept external to the bundle so pdf.js resolves its worker correctly (also why `asar: false` in packaging).
 - **AI text rendering** — inline markdown (bold/italic/code) from model output is rendered through a sanitized pipeline (`src/lib/markdown.ts` + DOMPurify).
@@ -300,6 +332,9 @@ All AI failures surface as plain-language messages — the raw provider error is
 | **"Couldn't reach the AI provider"** | No internet — or, for Local (Ollama), Ollama isn't running. **Test connection** re-runs the same check on demand. |
 | **"…didn't respond in time"** | Slow provider or flaky network. Retry; if it persists, try a different provider or a lighter model. |
 | **Test connection fails but the key looks right** | Check for stray spaces/quotes when pasting, confirm the key's scope (NVIDIA keys need **AI Foundation Models and Endpoints** enabled), and confirm your network allows the provider's domain (corporate proxies often block AI endpoints). |
+| **Key seems to vanish after a restart** | The encrypted keychain copy is authoritative — if Settings shows the provider as not configured after a restart, the OS couldn't decrypt the stored copy (e.g. the DB came from another machine or user). Re-paste the key; it also lives in the gitignored `.env`, which is read at startup. |
+| **Interview Coach analysis says it came back empty** | The provider returned something unparseable — most often a rate-limited or overloaded free tier. Retry, or switch provider (Settings → Interview Coach → Preferred AI provider). |
+| **Interview Coach answers have no Resume Evidence** | The session has no resume (or decryption of a copied DB failed). Re-open setup, add the resume, press **Re-analyze**. |
 | **App won't start / blank window** | Run `npm run build` and check for errors; verify Node.js 22.5+ (`node --version`). Delete `dist-electron/` and rebuild if the main process is stale. |
 | **`npm run dev` opens nothing** | Check the terminal for the Vite URL; if the port is taken Vite picks another — close the stray dev instance and re-run. |
 | **`.env` changes don't take effect** | Fully quit the app and start it again — `.env` is only read at startup. |
@@ -312,7 +347,7 @@ npm run typecheck # strict TypeScript across electron/ and src/
 npm run build     # full production build (type-check + bundle)
 ```
 
-The suite (`tests/`) covers the pure logic the app depends on: the error classifier (401/403 → rejected key, 404/410 → model retired, 429 → rate limit, timeouts, network failures), retry/fallback semantics (including "never stitch two models mid-stream"), the prompt parsers (meeting summaries, prep packs, question lists), and the NVIDIA wire format (endpoint, `Bearer` auth header, payload shape, nemotron `thinking: false` flag, and the streamed `<think>`-block filter, including chunks split mid-tag).
+The suite (`tests/`) covers the pure logic the app depends on: the error classifier (401/403 → rejected key, 404/410 → model retired, 429 → rate limit, timeouts, network failures — plus key-shape redaction so a provider echoing the key can't leak it), retry/fallback semantics (including "never stitch two models mid-stream"), the prompt parsers (meeting summaries, prep packs, question lists), the NVIDIA wire format (endpoint, `Bearer` auth header, payload shape, nemotron `thinking: false` flag, and the streamed `<think>`-block filter, including chunks split mid-tag), the per-provider API-key storage rules (distinct settings keys and env names per provider, DB-over-env precedence, empty-string handling), and the Interview Coach logic (setup validation, analysis parsing, speed-graded context trimming, session memory, feedback parsing of both complete and partially streamed responses, transcript segment dedup, provider preference ordering, and the speed→model chains for the coach modes).
 
 **End-to-end verification** (what "done" means beyond the unit tests):
 
@@ -321,6 +356,7 @@ The suite (`tests/`) covers the pure logic the app depends on: the error classif
 3. Paste a real key → **Test connection** → green "Key is valid" message.
 4. Paste a deliberately invalid key → **Test connection** → a red, specific message (e.g. NVIDIA: "The API key was rejected…"), never a raw HTTP dump and never the key itself.
 5. Ask a Practice question → structured answer streams in section by section.
+6. Interview Coach → setup wizard → Continue → the analysis appears and the studio opens; get a question, answer it, and the coached sections stream in; quit and reopen the app → the session resumes with its history intact.
 
 The NVIDIA request path was additionally verified against the **live** `integrate.api.nvidia.com` API: the wire format is accepted (invalid keys get a definitive 403 "Authorization failed", retired models a 410), and the bundled validation code was executed for real against NVIDIA, Gemini, OpenAI, and Anthropic endpoints. A full *successful* generation with NVIDIA requires a valid `nvapi-` key with credits — by design that secret never exists in this repo or CI, so run step 5 yourself with your own key.
 
@@ -362,7 +398,7 @@ which traced to a /healthz endpoint that needed a DB connection.
 - Outside of Resources and speech features, nothing is sent anywhere except to your selected AI provider's API, and only when you submit a question or document. No telemetry, no analytics, no background network calls.
 - **Voice dictation & live transcription** use the browser's Web Speech API: Chromium streams microphone audio to Google's speech service for recognition and returns text. Text is processed locally; only what you explicitly send to the AI provider (e.g. "summarize this transcript") leaves the machine beyond that. Read-aloud uses your OS voices and works offline.
 - **Capture shield** changes only what other programs can capture — it sends nothing anywhere and is always user-controlled, never automatic.
-- Resume context, meeting notes, tailored resumes, and API keys are encrypted at rest; practice history is stored locally but unencrypted (it's not sensitive by design). Resource files live in your Firebase Storage bucket, not on-device.
+- Resume context, meeting notes, tailored resumes, Interview Coach sessions (job description, resume, answers, feedback, analysis), and API keys are encrypted at rest; practice history is stored locally but unencrypted (it's not sensitive by design). Resource files live in your Firebase Storage bucket, not on-device. On machines where the OS-level encryption is unavailable (rare — e.g. some Linux setups without libsecret), keys and coach data fall back to a clearly-marked base64-encoded-at-rest mode instead of failing to save; the app still never sends them anywhere but your provider.
 - **API keys never reach the renderer.** All provider calls (and the Test-connection check) run in the Electron main process behind the typed IPC bridge; the UI sends "please use this key", never receives it back, and error messages are built to never echo the key. `.env` is gitignored, and `.env.example` contains placeholders only.
 - Settings includes full data-deletion controls (wipe history / wipe resume / wipe everything) for local data; resources are deleted from the Resources page itself (Admin only).
 
@@ -376,6 +412,8 @@ This tool is for preparation and learning — it is explicitly **not** a hidden 
 
 The capture shield exists so *you* can keep your own notes and prep private during legitimate screen sharing — the same way any privacy screen works — not to conceal AI-generated answers during an evaluation. Everything voice-driven here is practice-side (spoken mock interviews, dictation) or note-taking (transcripts you're part of, with everyone's knowledge). Mock Interview's **Interview mode** (auto-listening mic, see [What it does](#what-it-does)) is still you rehearsing solo against the app's own generated questions — not a live-call feature, and there is no mode that listens to a real interviewer or an actual conversation you're taking part in.
 
+**Interview Coach** is, by design and by name, a *preparation* studio: its analysis, practice questions, voice rehearsal, and streamed coaching all happen while you are alone, rehearsing disclosed practice questions (the app's own, ones you paste, or follow-ups from earlier feedback). It has no live-call mode, no hidden overlay, and no path that listens to a real interviewer — the same boundary as the rest of the app, stated here explicitly because this is the feature most name-adjacent to "answering for you".
+
 ## Project layout
 
 ```
@@ -387,18 +425,19 @@ electron/            Main process
   menu.ts              Native application menu (File/Edit/View/Go/Window/Help), popped up via the titlebar menu button
   preload.ts           Typed contextBridge API exposed to the renderer
   ai/                  Provider interface, Gemini/OpenAI/Anthropic/NVIDIA/Ollama implementations,
-                       prompts, retry/fallback, key validation (validate.ts), NVIDIA wire helpers (nvidiaWire.ts)
-  db/                  SQLite schema + access (settings, history, notes, tailoring results)
-  ipc/                 IPC handlers (qa, coding, resume, notes, stealth, AI, export)
+                       prompts, retry/fallback, key validation (validate.ts), NVIDIA wire helpers (nvidiaWire.ts),
+                       API-key storage rules (providerKeys.ts), Interview Coach logic (interviewCoach.ts)
+  db/                  SQLite schema + access (settings, history, notes, tailoring results, Interview Coach sessions)
+  ipc/                 IPC handlers (qa, coding, resume, notes, stealth, AI, Interview Coach, export)
   security/            OS-keychain encryption helpers
 src/                 Renderer (React UI)
-  pages/               One file per nav screen (Dashboard … Settings)
-  components/          AnswerSections, HistoryList, MicButton, icons (custom set)
+  pages/               One file per nav screen (Dashboard … Settings, including Interview Coach)
+  components/          AnswerSections, HistoryList, MicButton, CoachOrb (Interview Coach visualization), icons (custom set)
   lib/                 speech.ts (dictation + TTS), useStealth.ts, interview.ts (shared setup keys/levels),
                        markdown.ts (sanitized inline MD), theme, answer parsing, export, plan/feature gating,
                        firebase + auth
 public/               favicon
-tests/                Unit/integration suite (node --test): error mapping, retry/fallback,
-                      prompt parsers, NVIDIA wire format — run with `npm test`
+tests/                Unit/integration suite (node --test): error mapping + key redaction, retry/fallback,
+                      prompt parsers, NVIDIA wire format, API-key storage rules, Interview Coach logic — run with `npm test`
 .github/workflows/    build.yml (installer build on v* tag pushes)
 ```

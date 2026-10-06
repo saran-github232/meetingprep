@@ -3,6 +3,10 @@ import { app } from "electron";
 import { join } from "node:path";
 import schema from "./schema.sql?raw";
 import { encrypt, decrypt } from "../security/crypto";
+import { apiKeySettingKey, type AIProviderName } from "../ai/providerKeys";
+import type { InterviewCoachContext, CoachFeedback } from "../ai/interviewCoach";
+
+export type { AIProviderName } from "../ai/providerKeys";
 
 const dbPath = join(app.getPath("userData"), "meetingprep.db");
 export const db = new DatabaseSync(dbPath);
@@ -118,24 +122,24 @@ export function setSetting(key: string, value: string) {
   ).run(key, value);
 }
 
-export type AIProviderName = "gemini" | "openai" | "anthropic" | "nvidia" | "local";
-
 export function getApiKey(provider: AIProviderName): string | null {
-  const stored = getSetting(`${provider}_api_key_encrypted`);
+  const stored = getSetting(apiKeySettingKey(provider));
   if (!stored) return null;
   try {
     return decrypt(stored);
   } catch {
+    // Row came from another OS user/machine, or decryption broke — treat as absent so the
+    // .env / OS-environment copy gets its chance instead of failing the whole provider.
     return null;
   }
 }
 
 export function setApiKey(provider: AIProviderName, key: string): void {
-  setSetting(`${provider}_api_key_encrypted`, encrypt(key));
+  setSetting(apiKeySettingKey(provider), encrypt(key));
 }
 
 export function clearApiKey(provider: AIProviderName): void {
-  db.prepare(`DELETE FROM settings WHERE key = ?`).run(`${provider}_api_key_encrypted`);
+  db.prepare(`DELETE FROM settings WHERE key = ?`).run(apiKeySettingKey(provider));
 }
 
 export function getActiveProvider(): AIProviderName {
@@ -154,6 +158,11 @@ export function wipeAllData() {
     DELETE FROM meeting_notes;
     DELETE FROM mock_interview_results;
     DELETE FROM resume_tailoring_results;
+    DELETE FROM interview_coach_feedback;
+    DELETE FROM interview_coach_answers;
+    DELETE FROM interview_coach_questions;
+    DELETE FROM interview_coach_context;
+    DELETE FROM interview_coach_sessions;
   `);
 }
 
@@ -361,4 +370,271 @@ export function getPlan(): Plan {
 
 export function setPlan(plan: Plan): void {
   setSetting("plan", plan);
+}
+
+// ---------------------------------------------------------------------------
+// Interview Coach — sessions, cached analysis, questions, answers, feedback.
+// Job descriptions, resume text, answers, feedback, and the derived analysis are all
+// encrypted at rest (they embed resume content); skill/note text fields are plain.
+// ---------------------------------------------------------------------------
+
+export interface CoachSessionRow {
+  id: number;
+  job_title: string;
+  company: string;
+  interview_type: string;
+  experience_level: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CoachContextRow {
+  sessionId: number;
+  jobDescription: string;
+  resume: string | null;
+  analysis: InterviewCoachContext | null;
+  requiredSkills: string;
+  preferredSkills: string;
+  responsibilities: string;
+  techStack: string;
+  notes: string;
+}
+
+export interface CoachQuestionRow {
+  id: number;
+  question: string;
+  source: string;
+  created_at: string;
+}
+
+export interface CoachQaRow {
+  questionId: number;
+  answerId: number | null;
+  question: string;
+  source: string;
+  answer: string | null;
+  feedback: CoachFeedback | null;
+  created_at: string;
+}
+
+export interface CoachSessionBundle {
+  session: CoachSessionRow;
+  context: CoachContextRow | null;
+  qa: CoachQaRow[];
+}
+
+export function createCoachSession(input: {
+  jobTitle: string;
+  company: string;
+  interviewType: string;
+  experienceLevel: string;
+  jobDescription: string;
+  resume: string | null;
+  requiredSkills: string;
+  preferredSkills: string;
+  responsibilities: string;
+  techStack: string;
+  notes: string;
+}): number {
+  const result = db
+    .prepare(
+      `INSERT INTO interview_coach_sessions (job_title, company, interview_type, experience_level, status)
+       VALUES (?, ?, ?, ?, 'setup')`
+    )
+    .run(input.jobTitle, input.company, input.interviewType, input.experienceLevel);
+  const sessionId = Number(result.lastInsertRowid);
+  db.prepare(
+    `INSERT INTO interview_coach_context
+       (session_id, job_description_encrypted, resume_encrypted, required_skills, preferred_skills, responsibilities, tech_stack, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    sessionId,
+    encrypt(input.jobDescription),
+    input.resume ? encrypt(input.resume) : null,
+    input.requiredSkills,
+    input.preferredSkills,
+    input.responsibilities,
+    input.techStack,
+    input.notes
+  );
+  return sessionId;
+}
+
+function mapCoachSessionRow(row: Record<string, unknown>): CoachSessionRow {
+  return {
+    id: Number(row.id),
+    job_title: String(row.job_title ?? ""),
+    company: String(row.company ?? ""),
+    interview_type: String(row.interview_type ?? "mixed"),
+    experience_level: String(row.experience_level ?? ""),
+    status: String(row.status ?? "setup"),
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+  };
+}
+
+export function getCoachSession(id: number): CoachSessionRow | null {
+  const row = db.prepare(`SELECT * FROM interview_coach_sessions WHERE id = ?`).get(id) as
+    | Record<string, unknown>
+    | undefined;
+  return row ? mapCoachSessionRow(row) : null;
+}
+
+// The most recently touched session — reopening the page resumes where the user left off.
+export function getLatestCoachSession(): CoachSessionRow | null {
+  const row = db.prepare(`SELECT * FROM interview_coach_sessions ORDER BY updated_at DESC, id DESC LIMIT 1`).get() as
+    | Record<string, unknown>
+    | undefined;
+  return row ? mapCoachSessionRow(row) : null;
+}
+
+export function listCoachSessions(): CoachSessionRow[] {
+  return (
+    db.prepare(`SELECT * FROM interview_coach_sessions ORDER BY updated_at DESC`).all() as unknown as Array<
+      Record<string, unknown>
+    >
+  ).map(mapCoachSessionRow);
+}
+
+export function touchCoachSession(id: number): void {
+  db.prepare(`UPDATE interview_coach_sessions SET updated_at = datetime('now') WHERE id = ?`).run(id);
+}
+
+export function updateCoachSessionStatus(id: number, status: string): void {
+  db.prepare(`UPDATE interview_coach_sessions SET status = ?, updated_at = datetime('now') WHERE id = ?`).run(
+    status,
+    id
+  );
+}
+
+export function deleteCoachSession(id: number): void {
+  // Children are removed explicitly (SQLite foreign keys are off by default here).
+  db.prepare(
+    `DELETE FROM interview_coach_feedback WHERE answer_id IN
+       (SELECT a.id FROM interview_coach_answers a WHERE a.session_id = ?)`
+  ).run(id);
+  db.prepare(`DELETE FROM interview_coach_answers WHERE session_id = ?`).run(id);
+  db.prepare(`DELETE FROM interview_coach_questions WHERE session_id = ?`).run(id);
+  db.prepare(`DELETE FROM interview_coach_context WHERE session_id = ?`).run(id);
+  db.prepare(`DELETE FROM interview_coach_sessions WHERE id = ?`).run(id);
+}
+
+export function saveCoachContext(
+  sessionId: number,
+  patch: { jobDescription?: string; resume?: string | null; analysis?: InterviewCoachContext | null }
+): void {
+  const sets: string[] = [];
+  const values: Array<string | number | null> = [];
+  if (patch.jobDescription !== undefined) {
+    sets.push("job_description_encrypted = ?");
+    values.push(encrypt(patch.jobDescription));
+  }
+  if (patch.resume !== undefined) {
+    sets.push("resume_encrypted = ?");
+    values.push(patch.resume ? encrypt(patch.resume) : null);
+  }
+  if (patch.analysis !== undefined) {
+    sets.push("analysis_encrypted = ?");
+    values.push(encrypt(JSON.stringify(patch.analysis)));
+  }
+  if (sets.length === 0) return;
+  values.push(sessionId);
+  const stmt = db.prepare(`UPDATE interview_coach_context SET ${sets.join(", ")} WHERE session_id = ?`);
+  stmt.run(...(values as unknown as Parameters<typeof stmt.run>));
+}
+
+export function getCoachContext(sessionId: number): CoachContextRow | null {
+  const row = db.prepare(`SELECT * FROM interview_coach_context WHERE session_id = ?`).get(sessionId) as
+    | Record<string, unknown>
+    | undefined;
+  if (!row) return null;
+  const analysisRaw = row.analysis_encrypted ? safeDecrypt(String(row.analysis_encrypted)) : null;
+  return {
+    sessionId,
+    jobDescription: safeDecrypt(String(row.job_description_encrypted ?? "")),
+    resume: row.resume_encrypted ? safeDecrypt(String(row.resume_encrypted)) : null,
+    analysis: analysisRaw ? (JSON.parse(analysisRaw) as InterviewCoachContext) : null,
+    requiredSkills: String(row.required_skills ?? ""),
+    preferredSkills: String(row.preferred_skills ?? ""),
+    responsibilities: String(row.responsibilities ?? ""),
+    techStack: String(row.tech_stack ?? ""),
+    notes: String(row.notes ?? ""),
+  };
+}
+
+// A context row written before the encryption fallback existed (or from another machine)
+// shouldn't crash the whole page — degrade to empty content like getApiKey does.
+function safeDecrypt(payload: string): string {
+  try {
+    return decrypt(payload);
+  } catch {
+    return "";
+  }
+}
+
+export function addCoachQuestion(sessionId: number, question: string, source: "ai" | "user"): number {
+  const result = db
+    .prepare(`INSERT INTO interview_coach_questions (session_id, question, source) VALUES (?, ?, ?)`)
+    .run(sessionId, question, source);
+  touchCoachSession(sessionId);
+  return Number(result.lastInsertRowid);
+}
+
+export function listCoachQuestions(sessionId: number): CoachQuestionRow[] {
+  return db
+    .prepare(`SELECT * FROM interview_coach_questions WHERE session_id = ? ORDER BY id ASC`)
+    .all(sessionId) as unknown as CoachQuestionRow[];
+}
+
+export function addCoachAnswer(sessionId: number, questionId: number, answer: string): number {
+  const result = db
+    .prepare(`INSERT INTO interview_coach_answers (session_id, question_id, answer_encrypted) VALUES (?, ?, ?)`)
+    .run(sessionId, questionId, encrypt(answer));
+  touchCoachSession(sessionId);
+  return Number(result.lastInsertRowid);
+}
+
+export function saveCoachFeedback(sessionId: number, answerId: number, feedback: CoachFeedback): void {
+  db.prepare(`INSERT INTO interview_coach_feedback (answer_id, feedback_encrypted) VALUES (?, ?)`).run(
+    answerId,
+    encrypt(JSON.stringify(feedback))
+  );
+  touchCoachSession(sessionId);
+}
+
+// Full Q/A/feedback trail for a session, in asked order — the renderer's session history
+// and the session-memory builder both read from this.
+export function getCoachQa(sessionId: number): CoachQaRow[] {
+  const rows = db
+    .prepare(
+      `SELECT q.id AS q_id, q.question, q.source, q.created_at AS q_created,
+              a.id AS a_id, a.answer_encrypted,
+              f.feedback_encrypted
+       FROM interview_coach_questions q
+       LEFT JOIN interview_coach_answers a ON a.question_id = q.id
+       LEFT JOIN interview_coach_feedback f ON f.answer_id = a.id
+       WHERE q.session_id = ?
+       ORDER BY q.id ASC`
+    )
+    .all(sessionId) as unknown as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    questionId: Number(r.q_id),
+    answerId: r.a_id !== null && r.a_id !== undefined ? Number(r.a_id) : null,
+    question: String(r.question ?? ""),
+    source: String(r.source ?? "ai"),
+    answer: r.answer_encrypted ? safeDecrypt(String(r.answer_encrypted)) : null,
+    feedback: r.feedback_encrypted ? (JSON.parse(safeDecrypt(String(r.feedback_encrypted))) as CoachFeedback) : null,
+    created_at: String(r.q_created ?? ""),
+  }));
+}
+
+export function getCoachSessionBundle(sessionId: number): CoachSessionBundle | null {
+  const session = getCoachSession(sessionId);
+  if (!session) return null;
+  return {
+    session,
+    context: getCoachContext(sessionId),
+    qa: getCoachQa(sessionId),
+  };
 }

@@ -232,3 +232,12 @@ export const IconListCheck = (p: IconProps) => (
     <path d="M13 7h8M13 13.5h8M13 20h8" />
   </svg>
 );
+
+export const IconCoach = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4.5 13.5v-2a7.5 7.5 0 0 1 15 0v2" />
+    <rect x="3" y="13" width="4.6" height="6.2" rx="1.6" />
+    <rect x="16.4" y="13" width="4.6" height="6.2" rx="1.6" />
+    <path d="M19 19.2v.3a2.5 2.5 0 0 1-2.5 2.5H13.5" />
+  </svg>
+);
