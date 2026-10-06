@@ -10,6 +10,7 @@ import {
 } from "../../electron/ai/promptTemplates";
 import type { InterviewCoachContext, CoachSetup } from "../../electron/ai/interviewCoach";
 import { useDictation } from "../lib/speech";
+import { useAudioQuestionCapture } from "../lib/audioService";
 import { MicButton, InterimLine } from "../components/MicButton";
 import { MarkdownText } from "../components/AnswerSections";
 import { IconSpark } from "../components/icons";
@@ -382,16 +383,30 @@ export default function Practice() {
     };
   }, [activeSession, persistSession]);
 
-  // --- Speech Dictation ----------------------------------------------------
+  // --- Low-Latency Audio Question Capture ----------------------------------
   const {
-    listening,
-    interim,
-    supported: dictationSupported,
-    start: startDictation,
-    stop: stopDictation,
-  } = useDictation((text) =>
-    setInputText((prev) => (prev.trim() ? prev.trimEnd() + " " + text : text))
-  );
+    state: audioState,
+    error: audioError,
+    devices: audioDevices,
+    selectedDeviceId,
+    selectDevice,
+    volumeLevel,
+    lastMetrics: audioMetrics,
+    detectedQuestion: lastDetectedQuestion,
+    startListening: startAudioCapture,
+    stopListening: stopAudioCapture,
+    toggleListening: toggleAudioCapture,
+  } = useAudioQuestionCapture({
+    onQuestionDetected: (result) => {
+      const userTurn: Turn = {
+        role: "user",
+        text: result.transcript,
+        images: [],
+        sections: [],
+      };
+      handleSubmit(userTurn);
+    },
+  });
 
   // Scroll to bottom when turns change
   useEffect(() => {
@@ -402,9 +417,9 @@ export default function Practice() {
   useEffect(
     () => () => {
       stopStream.current?.();
-      stopDictation();
+      stopAudioCapture();
     },
-    []
+    [stopAudioCapture]
   );
 
   // --- Session Switching & Management --------------------------------------
@@ -1347,7 +1362,60 @@ export default function Practice() {
           }}
           disabled={loading}
         />
-        <InterimLine text={interim} />
+        {/* Audio Error */}
+        {audioError && (
+          <div className="mb-2">
+            <div className="error-box text-xs flex items-center justify-between">
+              <span>🎙 {audioError}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Live Audio Capture Banner */}
+        {audioState === "listening" && (
+          <div className="mb-2 flex items-center justify-between rounded-xl bg-danger/10 border border-danger/25 px-3 py-2 text-xs text-danger shadow-sm animate-rise">
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-danger opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger"></span>
+              </span>
+              <span className="font-medium">Listening for spoken interview question…</span>
+              <div className="w-16 h-2 bg-hairline rounded-full overflow-hidden" title={`Volume level: ${volumeLevel}%`}>
+                <div
+                  className="bg-danger h-full transition-all duration-75"
+                  style={{ width: `${Math.min(100, volumeLevel * 2.5)}%` }}
+                />
+              </div>
+              <span className="text-[11px] text-muted hidden sm:inline">Auto-stops on pause</span>
+            </div>
+            <button
+              onClick={stopAudioCapture}
+              className="btn-danger btn-xs py-0.5 px-2.5 text-[11px] font-medium"
+            >
+              Ask Now / Stop
+            </button>
+          </div>
+        )}
+
+        {/* Transcribing Banner */}
+        {audioState === "transcribing" && (
+          <div className="mb-2 flex items-center gap-2 rounded-xl bg-accent/10 border border-accent/25 px-3 py-2 text-xs text-accent animate-rise">
+            <IconSpark size={13} className="animate-spin" />
+            <span>Transcribing audio question with AI…</span>
+          </div>
+        )}
+
+        {/* Last Captured Question & Latency Metrics */}
+        {lastDetectedQuestion && audioMetrics && audioState !== "listening" && (
+          <div className="mb-2 flex items-center justify-between rounded-lg bg-surface border border-hairline/60 px-2.5 py-1 text-[11px] text-muted animate-rise">
+            <div className="truncate mr-2">
+              <span className="text-emerald-400 font-medium">✓ Spoken question:</span> &ldquo;{lastDetectedQuestion}&rdquo;
+            </div>
+            <span className="shrink-0 text-faint font-mono text-[10.5px]">
+              ⚡ {Math.round(audioMetrics.captureMs)}ms capture · {Math.round(audioMetrics.transcriptionMs)}ms transcribe
+            </span>
+          </div>
+        )}
 
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <select
@@ -1367,6 +1435,23 @@ export default function Practice() {
             ))}
           </select>
 
+          {/* Audio Input Device Selector */}
+          {audioDevices.length > 1 && (
+            <select
+              className="select w-auto text-[11px] max-w-[150px] truncate"
+              value={selectedDeviceId}
+              onChange={(e) => selectDevice(e.target.value)}
+              title="Select microphone input device"
+              disabled={audioState === "listening"}
+            >
+              {audioDevices.map((dev) => (
+                <option key={dev.deviceId} value={dev.deviceId}>
+                  🎤 {dev.label}
+                </option>
+              ))}
+            </select>
+          )}
+
           <button
             onClick={() => handleSubmit()}
             disabled={loading || (!inputText.trim() && pastedImages.length === 0)}
@@ -1383,17 +1468,20 @@ export default function Practice() {
             )}
           </button>
 
-          {dictationSupported && (
-            <MicButton
-              compact
-              listening={listening}
-              onClick={() => (listening ? stopDictation() : startDictation())}
-              disabled={loading}
-            />
-          )}
+          <MicButton
+            compact
+            listening={audioState === "listening"}
+            onClick={toggleAudioCapture}
+            disabled={loading || audioState === "transcribing"}
+            title={
+              audioState === "listening"
+                ? "Stop listening and process question"
+                : "Listen for spoken interview question"
+            }
+          />
 
           <span className="ml-auto hidden text-[11px] text-faint lg:inline">
-            Ctrl+V = paste screenshot · Ctrl+Enter = send
+            🎙 Audio auto-detect · Ctrl+V = paste screenshot · Ctrl+Enter = send
           </span>
         </div>
       </div>

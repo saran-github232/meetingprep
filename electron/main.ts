@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain, shell } from "electron";
+import { app, BrowserWindow, Menu, ipcMain, shell, session, systemPreferences } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { GeminiProvider } from "./ai/GeminiProvider";
@@ -100,6 +100,19 @@ ipcMain.handle("window:isMaximized", () => BrowserWindow.getFocusedWindow()?.isM
 ipcMain.handle("window:showMenu", () => Menu.getApplicationMenu()?.popup());
 
 app.whenReady().then(() => {
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    if (permission === "media") return true;
+    return false;
+  });
+
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === "media") {
+      callback(true);
+      return;
+    }
+    callback(false);
+  });
+
   buildAppMenu();
   createWindow();
 });

@@ -61,6 +61,87 @@ export default function Settings() {
     refreshLocal();
   }, []);
 
+  // Audio & Microphone Diagnostics
+  const [audioDiag, setAudioDiag] = useState<{
+    permission: string;
+    osPlatform: string;
+    hasAudioTranscription: boolean;
+    transcriptionProvider: string | null;
+    activeAiProvider: string;
+    hasActiveKey: boolean;
+  } | null>(null);
+  const [testingMic, setTestingMic] = useState(false);
+  const [micTestFeedback, setMicTestFeedback] = useState<{ title: string; detail: string } | null>(null);
+  const [selectedMicName, setSelectedMicName] = useState<string>("");
+
+  const refreshAudioDiag = async () => {
+    try {
+      if (window.api?.audio?.getDiagnostics) {
+        const diag = await window.api.audio.getDiagnostics();
+        setAudioDiag(diag);
+      }
+      if (navigator.mediaDevices?.enumerateDevices) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const savedId = await window.api.settings.get("audio_device_id");
+        const found = devices.find((d) => d.kind === "audioinput" && d.deviceId === savedId);
+        setSelectedMicName(found?.label || (devices.find((d) => d.kind === "audioinput")?.label ?? "Default Microphone"));
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    refreshAudioDiag();
+  }, []);
+
+  async function runMicTest() {
+    setTestingMic(true);
+    setMicTestFeedback(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+      recorder.start();
+      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise<void>((r) => {
+        recorder.onstop = () => r();
+        recorder.stop();
+      });
+      stream.getTracks().forEach((t) => t.stop());
+
+      const blob = new Blob(chunks, { type: chunks[0]?.type || "audio/webm" });
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = ((reader.result as string) || "").split(",")[1];
+        try {
+          const res = await window.api.audio.transcribe(base64, blob.type);
+          setMicTestFeedback({
+            title: "✓ Microphone & Transcription Verified!",
+            detail: `Recorded ${Math.round(blob.size / 1024)} KB audio. Result: "${res.text || "(silence detected)"}" via ${res.provider} in ${res.latencyMs}ms.`,
+          });
+        } catch (txErr) {
+          setMicTestFeedback({
+            title: "Microphone captured audio, but transcription provider returned an issue:",
+            detail: txErr instanceof Error ? txErr.message : String(txErr),
+          });
+        } finally {
+          setTestingMic(false);
+        }
+      };
+      reader.readAsDataURL(blob);
+    } catch (err) {
+      setMicTestFeedback({
+        title: "❌ Microphone Access Failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+      setTestingMic(false);
+    }
+  }
+
   useEffect(() => {
     // Reset per-provider state whenever the selected chip changes.
     setHasKey(null);
@@ -536,6 +617,70 @@ export default function Settings() {
             it (compact prompts, output caps, cached analysis) but can't guarantee a fixed response
             time. Latency metrics show time-to-first-token and total generation time when enabled.
           </p>
+        </div>
+      </section>
+
+      {/* audio & microphone diagnostics */}
+      <section>
+        <h2 className="section-label mb-2">Audio &amp; Microphone Diagnostics</h2>
+        <div className="card p-5 space-y-4">
+          <p className="text-[13px] leading-relaxed text-muted">
+            Inspect microphone status, active input device, and audio transcription pipeline for Practice and Interview Coach.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="p-3 rounded-lg border border-hairline/60 bg-raised/40">
+              <span className="text-muted block mb-1">Microphone Access:</span>
+              <span className="font-medium text-fg flex items-center gap-1.5">
+                {audioDiag?.permission === "granted" ? (
+                  <span className="text-emerald-400">✓ Connected &amp; Permitted</span>
+                ) : (
+                  <span className="text-amber-400">⚠️ {audioDiag?.permission ?? "Detecting..."}</span>
+                )}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-lg border border-hairline/60 bg-raised/40">
+              <span className="text-muted block mb-1">Input Device:</span>
+              <span className="font-medium text-fg truncate block">
+                {selectedMicName || "Default System Microphone"}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-lg border border-hairline/60 bg-raised/40">
+              <span className="text-muted block mb-1">Audio Capture Engine:</span>
+              <span className="font-medium text-emerald-400 flex items-center gap-1">
+                ✓ MediaRecorder + Web Audio VAD
+              </span>
+            </div>
+
+            <div className="p-3 rounded-lg border border-hairline/60 bg-raised/40">
+              <span className="text-muted block mb-1">Speech-to-Text Service:</span>
+              <span className="font-medium text-fg flex items-center gap-1.5">
+                {audioDiag?.hasAudioTranscription ? (
+                  <span className="text-emerald-400">✓ {audioDiag.transcriptionProvider}</span>
+                ) : (
+                  <span className="text-danger">❌ Requires OpenAI or Gemini key, or Test Mode</span>
+                )}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <button onClick={refreshAudioDiag} className="btn-secondary btn-xs">
+              Refresh Diagnostics
+            </button>
+            <button onClick={runMicTest} disabled={testingMic} className="btn-secondary btn-xs">
+              {testingMic ? "Recording 2s sample…" : "Test Microphone &amp; Audio Input"}
+            </button>
+          </div>
+
+          {micTestFeedback && (
+            <div className="p-3 rounded-lg bg-surface border border-hairline text-xs space-y-1 animate-rise">
+              <p className="font-semibold text-fg">{micTestFeedback.title}</p>
+              <p className="text-muted leading-relaxed">{micTestFeedback.detail}</p>
+            </div>
+          )}
         </div>
       </section>
 

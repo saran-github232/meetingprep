@@ -1,4 +1,5 @@
-import { BrowserWindow, ipcMain, type WebContents } from "electron";
+import { BrowserWindow, ipcMain, systemPreferences, type WebContents } from "electron";
+import { transcribeAudio, getAvailableTranscriptionProvider } from "../audio/transcription";
 import type { AIProvider, AnswerDepth, InterviewRoleContext, QuestionCategory, CoachSpeed } from "../ai/AIProvider";
 import * as db from "../db/db";
 import { envKeyName, isKeyConfigured, type AIProviderName } from "../ai/providerKeys";
@@ -716,6 +717,70 @@ ipcMain.on(
         }
       }
     );
-  }
-);
+  });
+
+  // --- Audio & Microphone Handlers ----------------------------------------
+  ipcMain.handle("audio:getPermissionStatus", async () => {
+    let status = "unknown";
+    try {
+      if (process.platform === "win32" || process.platform === "darwin") {
+        status = systemPreferences.getMediaAccessStatus ? systemPreferences.getMediaAccessStatus("microphone") : "granted";
+      } else {
+        status = "granted";
+      }
+    } catch {
+      status = "granted";
+    }
+    return { status, granted: status === "granted" };
+  });
+
+  ipcMain.handle("audio:requestPermission", async () => {
+    try {
+      if (process.platform === "darwin" && systemPreferences.askForMediaAccess) {
+        const granted = await systemPreferences.askForMediaAccess("microphone");
+        return { granted, status: granted ? "granted" : "denied" };
+      }
+      return { granted: true, status: "granted" };
+    } catch {
+      return { granted: true, status: "granted" };
+    }
+  });
+
+  ipcMain.handle("audio:transcribe", async (_e, params: { audioBase64: string; mimeType?: string; language?: string }) => {
+    return transcribeAudio(params, {
+      getSetting: (k) => db.getSetting(k),
+      getActiveProvider: () => db.getActiveProvider(),
+      getApiKey: (p) => db.getApiKey(p),
+    });
+  });
+
+  ipcMain.handle("audio:getDiagnostics", async () => {
+    let micStatus = "unknown";
+    try {
+      if (systemPreferences.getMediaAccessStatus) {
+        micStatus = systemPreferences.getMediaAccessStatus("microphone");
+      } else {
+        micStatus = "granted";
+      }
+    } catch {
+      micStatus = "granted";
+    }
+    const { hasProvider, providerName } = getAvailableTranscriptionProvider({
+      getSetting: (k) => db.getSetting(k),
+      getActiveProvider: () => db.getActiveProvider(),
+      getApiKey: (p) => db.getApiKey(p),
+    });
+    const activeProvider = db.getActiveProvider();
+    const dbKey = db.getApiKey(activeProvider);
+    const envVal = process.env[envKeyName(activeProvider) ?? ""];
+    const hasActiveKey = isKeyConfigured(dbKey, envVal);
+    return {
+      permission: micStatus,
+      osPlatform: process.platform,
+      hasAudioTranscription: hasProvider,
+      transcriptionProvider: providerName,
+      activeAiProvider: activeProvider,
+      hasActiveKey,
+    };
+  });
 }

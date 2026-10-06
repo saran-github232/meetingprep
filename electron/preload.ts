@@ -316,6 +316,26 @@ const api = {
     analyze: (input: { resumeText: string | null; setup: CoachSetup }): Promise<InterviewCoachContext> =>
       ipcRenderer.invoke("practice:analyze", input),
   },
+  audio: {
+    getPermissionStatus: (): Promise<{ status: string; granted: boolean }> =>
+      ipcRenderer.invoke("audio:getPermissionStatus"),
+    requestPermission: (): Promise<{ granted: boolean; status: string }> =>
+      ipcRenderer.invoke("audio:requestPermission"),
+    transcribe: (
+      audioBase64: string,
+      mimeType?: string,
+      language?: string
+    ): Promise<{ text: string; provider: string; latencyMs: number }> =>
+      ipcRenderer.invoke("audio:transcribe", { audioBase64, mimeType, language }),
+    getDiagnostics: (): Promise<{
+      permission: string;
+      osPlatform: string;
+      hasAudioTranscription: boolean;
+      transcriptionProvider: string | null;
+      activeAiProvider: string;
+      hasActiveKey: boolean;
+    }> => ipcRenderer.invoke("audio:getDiagnostics"),
+  },
 };
 
 contextBridge.exposeInMainWorld("api", api);

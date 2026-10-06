@@ -28,6 +28,7 @@ import CoachOrb from "../components/CoachOrb";
 import { MicButton, InterimLine } from "../components/MicButton";
 import { IconCheck, IconFile, IconPlus, IconShield, IconVolume } from "../components/icons";
 import { useDictation, useSpeaker } from "../lib/speech";
+import { useAudioQuestionCapture } from "../lib/audioService";
 import { useStealth } from "../lib/useStealth";
 import { EXPERIENCE_LEVELS, PREP_SETTING_KEYS } from "../lib/interview";
 
@@ -733,13 +734,32 @@ function StudioStage({
   }, recognitionLang);
   const { supported: speakerSupported, speaking, speak, stopSpeaking } = useSpeaker();
 
+  // Spoken Interview Question Capture
+  const {
+    state: audioQuestionState,
+    error: audioQuestionError,
+    volumeLevel: questionVolLevel,
+    toggleListening: toggleQuestionAudio,
+    stopListening: stopQuestionAudio,
+    lastMetrics: questionAudioMetrics,
+  } = useAudioQuestionCapture({
+    language: answerLang === "auto" ? undefined : answerLang,
+    onQuestionDetected: (result) => {
+      if (result.transcript.trim()) {
+        askNext("user", result.transcript.trim());
+      }
+    },
+  });
+
   const visualState: CoachVisualState = streaming
     ? "generating"
-    : listening
+    : audioQuestionState === "listening" || listening
       ? "listening"
-      : current
-        ? "ready"
-        : "idle";
+      : audioQuestionState === "transcribing"
+        ? "transcribing"
+        : current
+          ? "ready"
+          : "idle";
 
   // Provider label for the privacy panel: an explicit coach preference wins, otherwise
   // the app's active provider (which leads the fallback chain).
@@ -811,9 +831,10 @@ function StudioStage({
     () => () => {
       stopStream.current?.();
       stopDictation();
+      stopQuestionAudio();
       stopSpeaking();
     },
-    [stopDictation, stopSpeaking]
+    [stopDictation, stopQuestionAudio, stopSpeaking]
   );
 
   // Auto transcription: start the mic when a question appears (disclosed practice — same
@@ -1087,35 +1108,87 @@ function StudioStage({
             </div>
           )}
 
-          {/* ask your own question */}
-          <div className="card flex items-center gap-2 p-3.5">
-            <input
-              className="input"
-              placeholder="Or type a question you want to practice…"
-              value={ownQuestion}
-              onChange={(e) => setOwnQuestion(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && ownQuestion.trim()) {
-                  askNext("user", ownQuestion.trim());
-                  setOwnQuestion("");
-                }
-              }}
-              disabled={busy || streaming}
-              aria-label="Type your own practice question"
-            />
-            <button
-              onClick={() => {
-                if (ownQuestion.trim()) {
-                  askNext("user", ownQuestion.trim());
-                  setOwnQuestion("");
-                }
-              }}
-              disabled={busy || streaming || !ownQuestion.trim()}
-              className="btn-secondary shrink-0"
-            >
-              <IconPlus size={14} />
-              Add
-            </button>
+          {/* ask your own question / capture spoken question */}
+          <div className="card space-y-2.5 p-3.5">
+            {audioQuestionState === "listening" && (
+              <div className="flex items-center justify-between rounded-xl bg-danger/10 border border-danger/25 px-3 py-2 text-xs text-danger shadow-sm animate-rise">
+                <div className="flex items-center gap-2.5">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-danger opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger"></span>
+                  </span>
+                  <span className="font-medium">Listening for spoken question…</span>
+                  <div className="w-16 h-2 bg-hairline rounded-full overflow-hidden" title={`Volume level: ${questionVolLevel}%`}>
+                    <div
+                      className="bg-danger h-full transition-all duration-75"
+                      style={{ width: `${Math.min(100, questionVolLevel * 2.5)}%` }}
+                    />
+                  </div>
+                  <span className="text-[11px] text-muted hidden sm:inline">Auto-stops on pause</span>
+                </div>
+                <button
+                  onClick={stopQuestionAudio}
+                  className="btn-danger btn-xs py-0.5 px-2 text-[11px] font-medium"
+                >
+                  Ask Now / Stop
+                </button>
+              </div>
+            )}
+
+            {audioQuestionState === "transcribing" && (
+              <div className="flex items-center gap-2 rounded-xl bg-accent/10 border border-accent/25 px-3 py-2 text-xs text-accent animate-rise">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
+                <span>Transcribing spoken question with AI…</span>
+              </div>
+            )}
+
+            {audioQuestionError && (
+              <div className="error-box text-xs">
+                <span>🎙 {audioQuestionError}</span>
+              </div>
+            )}
+
+            {questionAudioMetrics && audioQuestionState !== "listening" && (
+              <p className="text-[11px] text-faint font-mono">
+                ⚡ Question captured: {Math.round(questionAudioMetrics.captureMs)}ms capture · {Math.round(questionAudioMetrics.transcriptionMs)}ms transcribe
+              </p>
+            )}
+
+            <div className="flex items-center gap-2">
+              <input
+                className="input"
+                placeholder="Or speak/type a question you want to practice…"
+                value={ownQuestion}
+                onChange={(e) => setOwnQuestion(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && ownQuestion.trim()) {
+                    askNext("user", ownQuestion.trim());
+                    setOwnQuestion("");
+                  }
+                }}
+                disabled={busy || streaming}
+                aria-label="Type your own practice question"
+              />
+              <button
+                onClick={() => {
+                  if (ownQuestion.trim()) {
+                    askNext("user", ownQuestion.trim());
+                    setOwnQuestion("");
+                  }
+                }}
+                disabled={busy || streaming || !ownQuestion.trim()}
+                className="btn-secondary shrink-0"
+              >
+                <IconPlus size={14} />
+                Add
+              </button>
+              <MicButton
+                listening={audioQuestionState === "listening"}
+                onClick={toggleQuestionAudio}
+                disabled={busy || streaming}
+                title={audioQuestionState === "listening" ? "Stop and process spoken question" : "Listen for spoken question"}
+              />
+            </div>
           </div>
 
           {/* answered history */}
