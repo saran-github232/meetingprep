@@ -6,6 +6,7 @@ import {
   coachTestFeedback,
   coachTestQuestion,
   formatCoachDuration,
+  formatCoachElapsed,
   isCoachTestModeEnabled,
   isUsefulAnalysis,
   parseCoachFeedback,
@@ -70,6 +71,18 @@ test("test-mode fixtures flow through the same parsers as real AI output", () =>
 test("test-mode questions cycle deterministically for repeated sessions", () => {
   assert.equal(coachTestQuestion(0), coachTestQuestion(5));
   assert.notEqual(coachTestQuestion(0), coachTestQuestion(1));
+});
+
+test("formatCoachElapsed ticks in m:ss and h:mm:ss, safely clamped", () => {
+  const start = "2026-10-06 10:00:00";
+  const at = (ms: number) => new Date("2026-10-06T10:00:00").getTime() + ms;
+  assert.equal(formatCoachElapsed(start, at(0)), "0:00");
+  assert.equal(formatCoachElapsed(start, at(5_000)), "0:05");
+  assert.equal(formatCoachElapsed(start, at(75_000)), "1:15");
+  assert.equal(formatCoachElapsed(start, at(3_600_000 + 61_000)), "1:01:01");
+  // Garbage stamps degrade to zero, and a clock behind the start never goes negative.
+  assert.equal(formatCoachElapsed("nonsense", at(999)), "0:00");
+  assert.equal(formatCoachElapsed(start, at(-5000)), "0:00");
 });
 
 // ---------------------------------------------------------------------------

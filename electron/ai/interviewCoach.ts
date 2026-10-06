@@ -61,6 +61,19 @@ export function formatCoachDuration(startedAt: string, endedAt: string | null): 
   return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
+// Live ticking label for an in-progress session: m:ss under an hour, h:mm:ss beyond.
+// Pure so the test suite pins the format; the renderer supplies the current time.
+export function formatCoachElapsed(startedAt: string, nowMs: number): string {
+  const start = new Date(startedAt.replace(" ", "T")).getTime();
+  if (!Number.isFinite(start)) return "0:00";
+  const total = Math.max(0, Math.floor((nowMs - start) / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mmss = `${m}:${String(s).padStart(2, "0")}`;
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : mmss;
+}
+
 // ---------------------------------------------------------------------------
 // Test Mode fixtures — canned, deterministic AI responses so sessions can be run
 // end-to-end repeatedly (QA/development) without consuming provider quota. The

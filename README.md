@@ -186,7 +186,7 @@ Pressing **Continue** runs a one-time analysis ("Analyzing resume… → Analyzi
 
 **Session lifecycle & history** — a session runs from Continue (analysis) through practice until you press **Complete session**, which stamps its end time and marks it Completed. The setup screen shows an **Interview history** table — date, format, duration, question count, status, with Open/Delete per row — backed by the same `interview_coach_*` SQLite tables. Starting a new session resets all temporary state (current question, draft answer, live transcript, timer); completed sessions are never overwritten, so you can run as many rehearsals as you want in a row without stale questions or transcripts leaking into the next one.
 
-**Test Mode** — Settings → Interview Coach → **Test Mode** makes the coach serve canned, deterministic local responses for the analysis, questions, and streamed feedback (no provider calls, no quota, no API key needed). Sessions run through the exact same parse/persist/render path as real ones, so the full flow can be exercised repeatedly for development and QA; turn it off for real coaching.
+**Test Mode** — Settings → Interview Coach → **Test Mode** makes the coach serve canned, deterministic local responses for the analysis, questions, and streamed feedback (no provider calls, no quota, no API key needed). Sessions run through the exact same parse/persist/render path as real ones, so the full flow can be exercised repeatedly for development and QA; turn it off for real coaching. With Test Mode on, the studio also shows a **Simulate answer** button that injects a canned segment through the same path the microphone uses — full QA runs without speaking a word.
 
 ### Private Practice Mode
 

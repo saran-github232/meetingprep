@@ -7,6 +7,7 @@ import {
   detectQuestionLanguage,
   detectRoleProfile,
   formatCoachDuration,
+  formatCoachElapsed,
   languageName,
   parseCoachFeedback,
   parsePartialCoachFeedback,
@@ -545,7 +546,7 @@ function SetupStage({
                       {COACH_FORMATS.find((f) => f.id === s.interview_format)?.label ?? "Human Interview"}
                     </td>
                     <td className="py-2 pr-3 text-muted">{formatCoachDuration(s.created_at, s.completed_at)}</td>
-                    <td className="py-2 pr-3 text-muted">{s.question_count}</td>
+                    <td className="py-2 pr-3 text-muted">{s.question_count} asked · {s.answer_count} answered</td>
                     <td className="py-2 pr-3">
                       {s.status === "completed" ? (
                         <span className="badge-teal">Completed</span>
@@ -652,6 +653,7 @@ function StudioStage({
   showLatency,
   voiceEnabled,
   autoListen,
+  testMode,
   metrics,
   setMetrics,
   onNewSession,
@@ -663,6 +665,7 @@ function StudioStage({
   showLatency: boolean;
   voiceEnabled: boolean;
   autoListen: boolean;
+  testMode: boolean;
   metrics: { ttftMs: number; totalMs: number } | null;
   setMetrics: (m: { ttftMs: number; totalMs: number }) => void;
   onNewSession: () => void;
@@ -791,6 +794,15 @@ function StudioStage({
       ? null
       : `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, "0")}`;
 
+  // Elapsed session time, ticking live from the session's start stamp.
+  const [elapsed, setElapsed] = useState("0:00");
+  useEffect(() => {
+    const tick = () => setElapsed(formatCoachElapsed(session.created_at, Date.now()));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [session.created_at]);
+
   useEffect(
     () => () => {
       stopStream.current?.();
@@ -890,6 +902,9 @@ function StudioStage({
             {session.experience_level ? ` · ${session.experience_level}` : ""} · {answeredCount} answered
           </p>
         </div>
+        <span className="badge border-hairline bg-surface/60 text-faint" title="Session elapsed time">
+          Elapsed {elapsed}
+        </span>
         <span className="badge border-hairline bg-surface/60 text-faint">
           {COACH_FORMATS.find((f) => f.id === session.interview_format)?.label ?? "Human Interview"}
         </span>
@@ -999,6 +1014,26 @@ function StudioStage({
                         onClick={() => (listening ? stopDictation() : startDictation())}
                         disabled={streaming}
                       />
+                    )}
+                    {testMode && (
+                      <button
+                        onClick={() => {
+                          // Simulated dictation input: feeds a canned segment through the
+                          // exact same path the mic uses, so QA needs no microphone.
+                          setAnswer((prev) =>
+                            appendTranscriptSegment(
+                              prev,
+                              "I would start by clarifying the requirements, then walk through my approach step by step, and close with a measurable result."
+                            )
+                          );
+                          setTranscriptLog((prev) => [...prev.slice(-40), "(simulated answer segment)"]);
+                        }}
+                        disabled={streaming}
+                        className="btn-secondary btn-xs"
+                        title="Test Mode: inject a canned answer segment as if dictated"
+                      >
+                        Simulate answer
+                      </button>
                     )}
                     <span className="text-[11.5px] text-faint">
                       <span className="kbd">Ctrl</span> + <span className="kbd">Enter</span> to submit
@@ -1231,6 +1266,7 @@ export default function InterviewCoach() {
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [autoListen, setAutoListen] = useState(true);
   const [metrics, setMetrics] = useState<{ ttftMs: number; totalMs: number } | null>(null);
+  const [testMode, setTestMode] = useState(false);
   const analyzingRef = useRef<number | null>(null);
 
   function setSetup(patch: Partial<CoachSetup>) {
@@ -1242,13 +1278,14 @@ export default function InterviewCoach() {
     let cancelled = false;
     (async () => {
       try {
-        const [speedPref, lengthPref, latencyPref, voicePref, listenPref, resume, latest] =
+        const [speedPref, lengthPref, latencyPref, voicePref, listenPref, testModePref, resume, latest] =
           await Promise.all([
             window.api.settings.get("coach_speed"),
             window.api.settings.get("coach_length"),
             window.api.settings.get("coach_show_latency"),
             window.api.settings.get("coach_voice"),
             window.api.settings.get("coach_autolisten"),
+            window.api.settings.get("coach_test_mode"),
             window.api.resume.get(),
             window.api.coach.latestSession(),
           ]);
@@ -1257,6 +1294,7 @@ export default function InterviewCoach() {
         if (lengthPref === "short" || lengthPref === "medium" || lengthPref === "detailed") {
           setResponseStyle(lengthPref);
         }
+        setTestMode(testModePref === "1");
         setShowLatency(latencyPref === "1");
         setVoiceEnabled(voicePref === "1");
         setAutoListen(listenPref !== "0"); // default on
@@ -1464,6 +1502,7 @@ export default function InterviewCoach() {
           showLatency={showLatency}
           voiceEnabled={voiceEnabled}
           autoListen={autoListen}
+          testMode={testMode}
           metrics={metrics}
           setMetrics={setMetrics}
           onNewSession={newSession}

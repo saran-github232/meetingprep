@@ -407,6 +407,7 @@ export interface CoachSessionRow {
 
 export interface CoachSessionStats extends CoachSessionRow {
   question_count: number;
+  answer_count: number;
 }
 
 export interface CoachContextRow {
@@ -674,14 +675,18 @@ export function getCoachSessionBundle(sessionId: number): CoachSessionBundle | n
   };
 }
 
-// History rows: every session with its question count, newest first. Powers the
-// Interview History table (date, format, duration, questions, status).
+// History rows: every session with its question and answer counts, newest first.
+// DISTINCT counts because the two left joins would otherwise cross-multiply.
+// Powers the Interview History table (date, format, duration, questions, responses, status).
 export function listCoachSessionStats(): CoachSessionStats[] {
   const rows = db
     .prepare(
-      `SELECT s.*, COUNT(q.id) AS question_count
+      `SELECT s.*,
+              COUNT(DISTINCT q.id) AS question_count,
+              COUNT(DISTINCT a.id) AS answer_count
        FROM interview_coach_sessions s
        LEFT JOIN interview_coach_questions q ON q.session_id = s.id
+       LEFT JOIN interview_coach_answers a ON a.session_id = s.id
        GROUP BY s.id
        ORDER BY s.updated_at DESC, s.id DESC`
     )
@@ -689,6 +694,7 @@ export function listCoachSessionStats(): CoachSessionStats[] {
   return rows.map((row) => ({
     ...mapCoachSessionRow(row),
     question_count: Number(row.question_count ?? 0),
+    answer_count: Number(row.answer_count ?? 0),
   }));
 }
 
