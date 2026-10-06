@@ -473,6 +473,9 @@ ipcMain.handle("coach:deleteSession", (_e, sessionId: number) => db.deleteCoachS
 // when the next session starts; historical sessions are never overwritten.
 ipcMain.handle("coach:completeSession", (_e, sessionId: number) => db.completeCoachSession(sessionId));
 
+// Abandoned/mis-started session: marked cancelled and kept in history rather than deleted.
+ipcMain.handle("coach:cancelSession", (_e, sessionId: number) => db.cancelCoachSession(sessionId));
+
 // The one-time resume/JD analysis (Phase 3) — cached in the session's context row, so
 // reopening a session or asking the next question never re-runs it. Test Mode serves a
 // canned analysis through the same parse/persist path so everything downstream is identical.

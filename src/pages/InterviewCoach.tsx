@@ -550,6 +550,8 @@ function SetupStage({
                     <td className="py-2 pr-3">
                       {s.status === "completed" ? (
                         <span className="badge-teal">Completed</span>
+                      ) : s.status === "cancelled" ? (
+                        <span className="badge border-gold/30 bg-gold/10 text-gold">Cancelled</span>
                       ) : (
                         <span className="badge border-hairline bg-surface/60 text-faint capitalize">{s.status}</span>
                       )}
@@ -659,6 +661,7 @@ function StudioStage({
   onNewSession,
   onReanalyze,
   onCompleteSession,
+  onCancelSession,
 }: {
   bundle: CoachSessionBundle;
   speed: CoachSpeed;
@@ -671,6 +674,7 @@ function StudioStage({
   onNewSession: () => void;
   onReanalyze: () => void;
   onCompleteSession: () => void;
+  onCancelSession: () => void;
 }) {
   const { session, context } = bundle;
   const isVirtualAI = session.interview_format === "virtual_ai";
@@ -942,6 +946,9 @@ function StudioStage({
         <button onClick={onReanalyze} disabled={busy || streaming} className="btn-ghost btn-xs">Re-analyze</button>
         <button onClick={onCompleteSession} disabled={busy || streaming} className="btn-secondary btn-xs">
           Complete session
+        </button>
+        <button onClick={onCancelSession} disabled={busy || streaming} className="btn-ghost btn-xs text-danger">
+          Abandon
         </button>
         <button onClick={onNewSession} disabled={busy || streaming} className="btn-secondary btn-xs">
           New session
@@ -1442,6 +1449,16 @@ export default function InterviewCoach() {
     setPastSessions(await window.api.coach.listSessions());
   }
 
+  // Abandoned or mis-started session: marked cancelled and kept in history, not deleted.
+  async function cancelSession() {
+    if (!bundle) return;
+    if (!confirm("Mark this session as cancelled? It stays in your history with its partial record.")) return;
+    await window.api.coach.cancelSession(bundle.session.id);
+    setBundle(null);
+    setStage("setup");
+    setPastSessions(await window.api.coach.listSessions());
+  }
+
   async function resumeSession(id: number) {
     setError(null);
     try {
@@ -1508,6 +1525,7 @@ export default function InterviewCoach() {
           onNewSession={newSession}
           onReanalyze={reanalyze}
           onCompleteSession={completeSession}
+          onCancelSession={cancelSession}
         />
       )}
     </div>

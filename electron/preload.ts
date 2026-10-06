@@ -115,6 +115,7 @@ const api = {
     listSessions: (): Promise<CoachSessionStats[]> => ipcRenderer.invoke("coach:listSessions"),
     deleteSession: (sessionId: number): Promise<void> => ipcRenderer.invoke("coach:deleteSession", sessionId),
     completeSession: (sessionId: number): Promise<void> => ipcRenderer.invoke("coach:completeSession", sessionId),
+    cancelSession: (sessionId: number): Promise<void> => ipcRenderer.invoke("coach:cancelSession", sessionId),
     analyze: (sessionId: number): Promise<InterviewCoachContext> => ipcRenderer.invoke("coach:analyze", sessionId),
     parseJobPosting: (rawPosting: string): Promise<import("./ai/interviewCoach").ParsedJobPosting> =>
       ipcRenderer.invoke("coach:parseJobPosting", rawPosting),

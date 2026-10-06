@@ -704,3 +704,11 @@ export function completeCoachSession(sessionId: number): void {
     `UPDATE interview_coach_sessions SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
   ).run(sessionId);
 }
+
+// Marks a session cancelled — an abandoned/mis-started interview that stays in history
+// (with its partial record) instead of being silently deleted.
+export function cancelCoachSession(sessionId: number): void {
+  db.prepare(
+    `UPDATE interview_coach_sessions SET status = 'cancelled', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+  ).run(sessionId);
+}
